@@ -124,13 +124,13 @@ class Market(commands.Cog):
         )
 
         embed.add_field(
-            name="🏆 Risk Asset Leader",
+            name="🏆 Equity Leader",
             value=dashboard["leader"],
             inline=True,
         )
 
         embed.add_field(
-            name="📉 Weakest Risk Asset",
+            name="📉 Equity Weakest",
             value=dashboard["loser"],
             inline=True,
         )
@@ -141,8 +141,26 @@ class Market(commands.Cog):
             inline=True,
         )
 
+        embed.add_field(
+            name="🛢 Energy / Geo Signal",
+            value=dashboard["energy_signal"],
+            inline=True,
+        )
+
+        embed.add_field(
+            name="₿ Crypto Signal",
+            value=dashboard["crypto_signal"],
+            inline=True,
+        )
+
+        embed.add_field(
+            name="🌙 After-Market Note",
+            value=dashboard["after_market_note"],
+            inline=False,
+        )
+
         embed.set_footer(
-            text=f'Updated {dashboard["updated"]} • MarketOps v0.2.3'
+            text=f'Updated {dashboard["updated"]} • MarketOps v0.2.4'
         )
 
         return embed
@@ -157,8 +175,11 @@ class Market(commands.Cog):
         if score >= 60:
             return discord.Color.green()
 
-        if score <= 40:
+        if score <= 30:
             return discord.Color.red()
+
+        if score <= 45:
+            return discord.Color.orange()
 
         return discord.Color.gold()
 
