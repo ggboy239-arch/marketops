@@ -8,70 +8,111 @@ class RiskEngine:
         oil,
         btc,
         dxy,
-        us10y
+        us10y,
     ):
-
         score = 50
+        positive_reasons = []
+        negative_reasons = []
+        watch_items = []
 
-        reasons = []
-
-        # -----------------------
-        # Market
-        # -----------------------
-
-        if spy > 0:
-            score += 10
-            reasons.append("📈 Stocks Rising")
+        if spy >= 0.25:
+            score += 12
+            positive_reasons.append("📈 Stocks rising")
+        elif spy <= -0.25:
+            score -= 12
+            negative_reasons.append("📉 Stocks falling")
         else:
-            score -= 10
-            reasons.append("📉 Stocks Falling")
+            watch_items.append("🇺🇸 Market mostly flat")
 
-        # -----------------------
-
-        if qqq > 0:
+        if qqq > spy + 0.20 and qqq > 0:
             score += 10
-            reasons.append("🤖 Tech Leading")
+            positive_reasons.append("🤖 Tech leading")
+        elif qqq < spy - 0.20 and qqq < 0:
+            score -= 8
+            negative_reasons.append("🤖 Tech weak")
         else:
-            score -= 10
-            reasons.append("🤖 Tech Weak")
+            watch_items.append("🤖 Tech not clearly leading")
 
-        # -----------------------
-
-        if vix < 0:
+        if vix <= -2:
             score += 20
-            reasons.append("😌 Fear Falling")
+            positive_reasons.append("😌 Fear falling")
+        elif vix >= 5:
+            score -= 25
+            negative_reasons.append("😨 Fear rising fast")
+        elif vix > 0:
+            score -= 10
+            negative_reasons.append("😟 Fear slightly higher")
         else:
-            score -= 20
-            reasons.append("😨 Fear Rising")
+            watch_items.append("😨 Fear mostly calm")
 
-        # -----------------------
-
-        if btc > 0:
+        if oil >= 2:
+            score -= 8
+            negative_reasons.append("🛢 Oil rising strongly")
+        elif oil <= -1:
             score += 5
-            reasons.append("₿ Crypto Strong")
-        else:
+            positive_reasons.append("🛢 Oil easing")
+
+        if btc >= 1:
+            score += 5
+            positive_reasons.append("₿ Bitcoin strong")
+        elif btc <= -1:
             score -= 5
-            reasons.append("₿ Crypto Weak")
+            negative_reasons.append("₿ Bitcoin weak")
 
-        # -----------------------
-
-        if oil > 2:
+        if dxy >= 0.40:
             score -= 5
-            reasons.append("🛢 Oil Surging")
+            negative_reasons.append("💵 Dollar stronger")
+        elif dxy <= -0.30:
+            score += 3
+            positive_reasons.append("💵 Dollar weaker")
 
-        # -----------------------
+        if us10y >= 1:
+            score -= 4
+            negative_reasons.append("🏦 Yields rising")
+        elif us10y <= -1:
+            score += 4
+            positive_reasons.append("🏦 Yields easing")
 
-        if score >= 70:
-            mood = "🟢 Risk-On"
+        score = max(0, min(100, round(score)))
 
-        elif score <= 30:
+        if score >= 75:
+            mood = "🟢 Strong Risk-On"
+        elif score >= 60:
+            mood = "🟢 Slight Risk-On"
+        elif score > 40:
+            mood = "🟡 Mixed / Wait-and-See"
+        elif score > 25:
             mood = "🔴 Risk-Off"
-
         else:
-            mood = "🟡 Mixed"
+            mood = "🔴 Heavy Risk-Off"
+
+        confidence = self._confidence(score)
+
+        reasons = positive_reasons + negative_reasons
+
+        if not reasons:
+            reasons = watch_items or ["Market signals are mixed"]
 
         return {
             "score": score,
             "mood": mood,
-            "reasons": reasons
+            "confidence": confidence,
+            "reasons": reasons,
+            "positive_reasons": positive_reasons,
+            "negative_reasons": negative_reasons,
+            "watch_items": watch_items,
         }
+
+    def _confidence(self, score):
+        distance_from_neutral = abs(score - 50)
+
+        if distance_from_neutral >= 35:
+            return "★★★★★"
+
+        if distance_from_neutral >= 25:
+            return "★★★★☆"
+
+        if distance_from_neutral >= 15:
+            return "★★★☆☆"
+
+        return "★★☆☆☆"
