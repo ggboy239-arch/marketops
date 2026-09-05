@@ -44,19 +44,19 @@ class Market(commands.Cog):
             )
 
             embed.add_field(
-                name="🇺🇸 Market",
+                name="🇺🇸 S&P Futures",
                 value=dashboard["assets"]["market"],
                 inline=True,
             )
 
             embed.add_field(
-                name="🤖 Tech",
+                name="🤖 Nasdaq Futures",
                 value=dashboard["assets"]["tech"],
                 inline=True,
             )
 
             embed.add_field(
-                name="😨 Fear",
+                name="😨 Fear / VIX",
                 value=dashboard["assets"]["fear"],
                 inline=True,
             )
@@ -104,7 +104,7 @@ class Market(commands.Cog):
             )
 
             embed.set_footer(
-                text=f'Updated {dashboard["updated"]} • MarketOps v0.2'
+                text=f'Updated {dashboard["updated"]} • MarketOps v0.2.1'
             )
 
             await interaction.followup.send(embed=embed)
