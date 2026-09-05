@@ -32,8 +32,9 @@ class MarketService:
             rates_change,
         )
 
-        leader = self._find_leader(snapshot)
-        weakest = self._find_weakest(snapshot)
+        risk_asset_leader = self._find_risk_asset_leader(snapshot)
+        risk_asset_weakest = self._find_risk_asset_weakest(snapshot)
+        warning_signal = self._find_warning_signal(snapshot)
         theme = self._detect_theme(
             market_change,
             tech_change,
@@ -48,8 +49,9 @@ class MarketService:
             "confidence": risk["confidence"],
             "reasons": risk["reasons"],
             "theme": theme,
-            "leader": leader,
-            "loser": weakest,
+            "leader": risk_asset_leader,
+            "loser": risk_asset_weakest,
+            "warning_signal": warning_signal,
             "updated": self._timestamp(),
             "assets": {
                 "market": self._format_asset(snapshot["market"]),
@@ -82,8 +84,21 @@ class MarketService:
             f'Status: {quote["status"]}'
         )
 
-        if quote["extended_change_percent"] is not None:
-            value += f'\nExtended: **{quote["extended_change_percent"]:+.2f}%**'
+        if quote["status"] == "Futures":
+            value += "\nOvernight: **Live futures price**"
+
+        if quote["extended_price"] is not None:
+            extended_label = quote["status"]
+            extended_price = self._format_price(quote["extended_price"], quote["kind"])
+            extended_change = quote["extended_change_percent"]
+
+            if extended_change is None:
+                value += f'\n{extended_label}: **{extended_price}**'
+            else:
+                value += (
+                    f'\n{extended_label}: **{extended_price}** '
+                    f'({extended_change:+.2f}%)'
+                )
 
         return value
 
@@ -102,17 +117,28 @@ class MarketService:
 
         return f"{price:,.2f}"
 
-    def _find_leader(self, snapshot):
+    def _find_risk_asset_leader(self, snapshot):
+        allowed = ["market", "tech", "oil", "bitcoin"]
         key, quote = max(
-            snapshot.items(),
+            ((key, snapshot[key]) for key in allowed),
             key=lambda item: item[1].get("change_percent", 0),
         )
 
         return f'{quote["label"]} ({quote["change_percent"]:+.2f}%)'
 
-    def _find_weakest(self, snapshot):
+    def _find_risk_asset_weakest(self, snapshot):
+        allowed = ["market", "tech", "oil", "bitcoin"]
         key, quote = min(
-            snapshot.items(),
+            ((key, snapshot[key]) for key in allowed),
+            key=lambda item: item[1].get("change_percent", 0),
+        )
+
+        return f'{quote["label"]} ({quote["change_percent"]:+.2f}%)'
+
+    def _find_warning_signal(self, snapshot):
+        warning_keys = ["fear", "dollar", "rates"]
+        key, quote = max(
+            ((key, snapshot[key]) for key in warning_keys),
             key=lambda item: item[1].get("change_percent", 0),
         )
 
