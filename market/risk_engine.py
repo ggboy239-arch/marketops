@@ -17,21 +17,21 @@ class RiskEngine:
 
         if spy >= 0.25:
             score += 12
-            positive_reasons.append("📈 Stocks rising")
+            positive_reasons.append("📈 S&P futures rising")
         elif spy <= -0.25:
             score -= 12
-            negative_reasons.append("📉 Stocks falling")
+            negative_reasons.append("📉 S&P futures falling")
         else:
-            watch_items.append("🇺🇸 Market mostly flat")
+            watch_items.append("🇺🇸 S&P futures mostly flat")
 
         if qqq > spy + 0.20 and qqq > 0:
             score += 10
-            positive_reasons.append("🤖 Tech leading")
+            positive_reasons.append("🤖 Nasdaq futures leading")
         elif qqq < spy - 0.20 and qqq < 0:
             score -= 8
-            negative_reasons.append("🤖 Tech weak")
+            negative_reasons.append("🤖 Nasdaq futures weak")
         else:
-            watch_items.append("🤖 Tech not clearly leading")
+            watch_items.append("🤖 Nasdaq futures not clearly leading")
 
         if vix <= -2:
             score += 20
@@ -79,10 +79,10 @@ class RiskEngine:
             mood = "🟢 Strong Risk-On"
         elif score >= 60:
             mood = "🟢 Slight Risk-On"
-        elif score > 40:
+        elif score > 45:
             mood = "🟡 Mixed / Wait-and-See"
-        elif score > 25:
-            mood = "🔴 Risk-Off"
+        elif score > 30:
+            mood = "🟠 Mild Risk-Off"
         else:
             mood = "🔴 Heavy Risk-Off"
 
