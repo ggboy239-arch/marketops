@@ -124,19 +124,25 @@ class Market(commands.Cog):
         )
 
         embed.add_field(
-            name="🏆 Leader",
+            name="🏆 Risk Asset Leader",
             value=dashboard["leader"],
             inline=True,
         )
 
         embed.add_field(
-            name="📉 Weakest",
+            name="📉 Weakest Risk Asset",
             value=dashboard["loser"],
             inline=True,
         )
 
+        embed.add_field(
+            name="⚠️ Biggest Warning Signal",
+            value=dashboard["warning_signal"],
+            inline=True,
+        )
+
         embed.set_footer(
-            text=f'Updated {dashboard["updated"]} • MarketOps v0.2.2'
+            text=f'Updated {dashboard["updated"]} • MarketOps v0.2.3'
         )
 
         return embed
