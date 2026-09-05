@@ -13,14 +13,14 @@ class FinnhubProvider:
 
     SYMBOLS = {
         "market": {
-            "symbol": "SPY",
-            "label": "🇺🇸 Market",
-            "kind": "money",
+            "symbol": "ES=F",
+            "label": "🇺🇸 S&P Futures",
+            "kind": "futures",
         },
         "tech": {
-            "symbol": "QQQ",
-            "label": "🤖 Tech",
-            "kind": "money",
+            "symbol": "NQ=F",
+            "label": "🤖 Nasdaq Futures",
+            "kind": "futures",
         },
         "fear": {
             "symbol": "^VIX",
@@ -30,7 +30,7 @@ class FinnhubProvider:
         "oil": {
             "symbol": "CL=F",
             "label": "🛢 Oil",
-            "kind": "money",
+            "kind": "futures_money",
         },
         "dollar": {
             "symbol": "DX-Y.NYB",
@@ -172,6 +172,9 @@ class FinnhubProvider:
     def _market_status(self, kind):
         if kind == "crypto":
             return "24/7"
+
+        if kind in ("futures", "futures_money"):
+            return "Futures"
 
         now = datetime.now(ZoneInfo("America/New_York"))
 
