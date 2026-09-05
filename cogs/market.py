@@ -13,84 +13,125 @@ class Market(commands.Cog):
 
     @app_commands.command(
         name="market",
-        description="View today's market dashboard."
+        description="View today's MarketOps dashboard.",
     )
     async def market(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
 
-        dashboard = self.market.get_dashboard()
+        try:
+            dashboard = self.market.get_dashboard()
 
-        embed = discord.Embed(
-            title="📊 Market Dashboard",
-            color=discord.Color.green()
-        )
+            embed = discord.Embed(
+                title="🌅 MarketOps Dashboard",
+                description="What kind of market are we walking into?",
+                color=self._risk_color(dashboard["score"]),
+            )
 
-        embed.add_field(
-            name="Risk",
-            value=dashboard["risk"],
-            inline=False
-        )
+            embed.add_field(
+                name="🧠 Market Mood",
+                value=(
+                    f'**{dashboard["risk"]}**\n'
+                    f'Score: **{dashboard["score"]}/100**\n'
+                    f'Confidence: {dashboard["confidence"]}'
+                ),
+                inline=False,
+            )
 
-        embed.add_field(
-            name="Today's Theme",
-            value=dashboard["theme"],
-            inline=False
-        )
+            embed.add_field(
+                name="Why?",
+                value=self._format_reasons(dashboard["reasons"]),
+                inline=False,
+            )
 
-        embed.add_field(
-            name="🇺🇸 ES",
-            value=dashboard["es"],
-            inline=True
-        )
+            embed.add_field(
+                name="🇺🇸 Market",
+                value=dashboard["assets"]["market"],
+                inline=True,
+            )
 
-        embed.add_field(
-            name="🤖 NQ",
-            value=dashboard["nq"],
-            inline=True
-        )
+            embed.add_field(
+                name="🤖 Tech",
+                value=dashboard["assets"]["tech"],
+                inline=True,
+            )
 
-        embed.add_field(
-            name="😨 VIX",
-            value=dashboard["vix"],
-            inline=True
-        )
+            embed.add_field(
+                name="😨 Fear",
+                value=dashboard["assets"]["fear"],
+                inline=True,
+            )
 
-        embed.add_field(
-            name="🛢 Oil",
-            value=dashboard["oil"],
-            inline=True
-        )
+            embed.add_field(
+                name="🛢 Oil",
+                value=dashboard["assets"]["oil"],
+                inline=True,
+            )
 
-        embed.add_field(
-            name="₿ Bitcoin",
-            value=dashboard["btc"],
-            inline=True
-        )
+            embed.add_field(
+                name="💵 Dollar",
+                value=dashboard["assets"]["dollar"],
+                inline=True,
+            )
 
-        embed.add_field(
-            name="💵 Dollar",
-            value=dashboard["dxy"],
-            inline=True
-        )
+            embed.add_field(
+                name="🏦 US10Y",
+                value=dashboard["assets"]["rates"],
+                inline=True,
+            )
 
-        embed.add_field(
-            name="🏦 US10Y",
-            value=dashboard["us10y"],
-            inline=True
-        )
+            embed.add_field(
+                name="₿ Bitcoin",
+                value=dashboard["assets"]["bitcoin"],
+                inline=True,
+            )
 
-        embed.add_field(
-            name="🏆 Leader",
-            value=dashboard["leader"],
-            inline=True
-        )
+            embed.add_field(
+                name="📰 Today's Theme",
+                value=dashboard["theme"],
+                inline=True,
+            )
 
-        embed.add_field(
-            name="📉 Weakest",
-            value=dashboard["loser"],
-            inline=True
-        )
+            embed.add_field(
+                name="🏆 Leader",
+                value=dashboard["leader"],
+                inline=True,
+            )
 
-        await interaction.response.send_message(embed=embed)
+            embed.add_field(
+                name="📉 Weakest",
+                value=dashboard["loser"],
+                inline=True,
+            )
+
+            embed.set_footer(
+                text=f'Updated {dashboard["updated"]} • MarketOps v0.2'
+            )
+
+            await interaction.followup.send(embed=embed)
+
+        except Exception as error:
+            print(f"❌ /market error: {error}")
+
+            await interaction.followup.send(
+                "⚠️ MarketOps had trouble building the dashboard. "
+                "Check the terminal for the error.",
+                ephemeral=True,
+            )
+
+    def _format_reasons(self, reasons):
+        if not reasons:
+            return "No clear reason yet."
+
+        return "\n".join(f"• {reason}" for reason in reasons[:5])
+
+    def _risk_color(self, score):
+        if score >= 60:
+            return discord.Color.green()
+
+        if score <= 40:
+            return discord.Color.red()
+
+        return discord.Color.gold()
 
 
 async def setup(bot):
