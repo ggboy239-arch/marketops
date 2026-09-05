@@ -91,11 +91,14 @@ class MarketService:
         if kind == "crypto":
             return f"${price:,.0f}"
 
-        if kind == "money":
+        if kind in ("money", "futures_money"):
             return f"${price:,.2f}"
 
+        if kind == "futures":
+            return f"{price:,.2f} pts"
+
         if kind == "yield":
-            return f"{price / 10:.2f}%"
+            return f"{price:.2f}%"
 
         return f"{price:,.2f}"
 
