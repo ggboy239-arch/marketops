@@ -32,9 +32,11 @@ class MarketService:
             rates_change,
         )
 
-        risk_asset_leader = self._find_risk_asset_leader(snapshot)
-        risk_asset_weakest = self._find_risk_asset_weakest(snapshot)
+        equity_leader = self._find_equity_leader(snapshot)
+        equity_weakest = self._find_equity_weakest(snapshot)
         warning_signal = self._find_warning_signal(snapshot)
+        energy_signal = self._format_signal(snapshot, "oil")
+        crypto_signal = self._format_signal(snapshot, "bitcoin")
         theme = self._detect_theme(
             market_change,
             tech_change,
@@ -49,9 +51,12 @@ class MarketService:
             "confidence": risk["confidence"],
             "reasons": risk["reasons"],
             "theme": theme,
-            "leader": risk_asset_leader,
-            "loser": risk_asset_weakest,
+            "leader": equity_leader,
+            "loser": equity_weakest,
             "warning_signal": warning_signal,
+            "energy_signal": energy_signal,
+            "crypto_signal": crypto_signal,
+            "after_market_note": self._after_market_note(snapshot),
             "updated": self._timestamp(),
             "assets": {
                 "market": self._format_asset(snapshot["market"]),
@@ -85,7 +90,7 @@ class MarketService:
         )
 
         if quote["status"] == "Futures":
-            value += "\nOvernight: **Live futures price**"
+            value += "\nAfter Market: **Live futures / overnight price**"
 
         if quote["extended_price"] is not None:
             extended_label = quote["status"]
@@ -117,8 +122,8 @@ class MarketService:
 
         return f"{price:,.2f}"
 
-    def _find_risk_asset_leader(self, snapshot):
-        allowed = ["market", "tech", "oil", "bitcoin"]
+    def _find_equity_leader(self, snapshot):
+        allowed = ["market", "tech"]
         key, quote = max(
             ((key, snapshot[key]) for key in allowed),
             key=lambda item: item[1].get("change_percent", 0),
@@ -126,8 +131,8 @@ class MarketService:
 
         return f'{quote["label"]} ({quote["change_percent"]:+.2f}%)'
 
-    def _find_risk_asset_weakest(self, snapshot):
-        allowed = ["market", "tech", "oil", "bitcoin"]
+    def _find_equity_weakest(self, snapshot):
+        allowed = ["market", "tech"]
         key, quote = min(
             ((key, snapshot[key]) for key in allowed),
             key=lambda item: item[1].get("change_percent", 0),
@@ -143,6 +148,23 @@ class MarketService:
         )
 
         return f'{quote["label"]} ({quote["change_percent"]:+.2f}%)'
+
+    def _format_signal(self, snapshot, key):
+        quote = snapshot[key]
+        return f'{quote["label"]} ({quote["change_percent"]:+.2f}%)'
+
+    def _after_market_note(self, snapshot):
+        futures = [
+            snapshot["market"]["symbol"],
+            snapshot["tech"]["symbol"],
+            snapshot["oil"]["symbol"],
+        ]
+
+        return (
+            f'{", ".join(futures)} show live futures / overnight pricing. '
+            "BTC trades 24/7. VIX, Dollar, and US10Y may stay closed outside "
+            "regular market hours."
+        )
 
     def _detect_theme(self, market, tech, fear, oil, bitcoin):
         if oil >= 2:
