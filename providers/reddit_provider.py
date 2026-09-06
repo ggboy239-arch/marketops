@@ -1,8 +1,9 @@
 import html
 import os
 import re
+import time
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 import requests
@@ -21,9 +22,12 @@ class RedditProvider:
     DEFAULT_SUBREDDITS = [
         "stocks",
         "investing",
+        "wallstreetbets",
+    ]
+
+    OPTIONAL_SUBREDDITS = [
         "SecurityAnalysis",
         "StockMarket",
-        "wallstreetbets",
         "economics",
         "geopolitics",
         "worldnews",
@@ -34,22 +38,35 @@ class RedditProvider:
     def __init__(self):
         self.enabled = self._env_bool("REDDIT_ENABLED", default=True)
         self.subreddits = self._load_csv("REDDIT_SUBREDDITS", self.DEFAULT_SUBREDDITS)
-        self.limit_per_subreddit = int(os.getenv("REDDIT_LIMIT_PER_SUBREDDIT", "3"))
+        self.limit_per_subreddit = int(os.getenv("REDDIT_LIMIT_PER_SUBREDDIT", "1"))
         self.timeout = int(os.getenv("REDDIT_TIMEOUT_SECONDS", "10"))
+        self.request_delay_seconds = float(os.getenv("REDDIT_REQUEST_DELAY_SECONDS", "3"))
+        self.cache_minutes = int(os.getenv("REDDIT_CACHE_MINUTES", "15"))
+        self._cache_items = []
+        self._cache_time = None
         self.headers = {
-            "User-Agent": "MarketOps/0.7.1 public reddit rss monitor",
+            "User-Agent": "MarketOpsRedditMonitor/0.7.2 by u/ggboy239",
+            "Accept": "application/atom+xml, application/xml;q=0.9, */*;q=0.8",
         }
 
     def get_latest_news(self, limit=25):
         if not self.enabled:
             return []
 
+        if self._cache_is_valid():
+            return self._cache_items[:limit]
+
         items = []
-        for subreddit in self.subreddits:
+        for index, subreddit in enumerate(self.subreddits):
+            if index > 0:
+                time.sleep(self.request_delay_seconds)
+
             items.extend(self._fetch_subreddit(subreddit))
 
         items = self._deduplicate(items)
         items = self._sort_items(items)
+        self._cache_items = items
+        self._cache_time = datetime.now(timezone.utc)
         return items[:limit]
 
     def source_policy(self):
@@ -58,7 +75,8 @@ class RedditProvider:
 
         return (
             "Reddit monitor is ON. Reddit items are treated as chatter/watchlist leads, "
-            "not confirmed news, and are routed to #reddit-hot."
+            "not confirmed news, and are routed to #reddit-hot. Reddit RSS is rate-limited, "
+            "so MarketOps checks fewer subreddits and caches results."
         )
 
     def _fetch_subreddit(self, subreddit):
@@ -66,8 +84,18 @@ class RedditProvider:
 
         try:
             response = requests.get(url, headers=self.headers, timeout=self.timeout)
+
+            if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After", "unknown")
+                print(
+                    f"⚠️ Reddit rate limit from r/{subreddit}. "
+                    f"Skipping for now. Retry-After: {retry_after}"
+                )
+                return []
+
             response.raise_for_status()
             return self._parse_feed(subreddit, response.text)
+
         except Exception as error:
             print(f"❌ Reddit RSS error from r/{subreddit}: {error}")
             return []
@@ -106,6 +134,13 @@ class RedditProvider:
             )
 
         return items
+
+    def _cache_is_valid(self):
+        if self._cache_time is None:
+            return False
+
+        age = datetime.now(timezone.utc) - self._cache_time
+        return age < timedelta(minutes=self.cache_minutes)
 
     def _find_text(self, entry, tag, ns):
         element = entry.find(tag, ns)
