@@ -16,26 +16,28 @@ class BriefEngine:
     def build_brief(self):
         dashboard = self.market_service.get_dashboard()
 
-        market_news = self.news_engine.get_top_news(limit=1, category="market")
-        general_news = self.news_engine.get_top_news(limit=1, category="general")
-        ai_news = self.news_engine.get_top_news(limit=1, category="ai")
-        fed_news = self.news_engine.get_top_news(limit=1, category="fed")
-        geo_news = self.news_engine.get_top_news(limit=1, category="geo")
-        crypto_news = self.news_engine.get_top_news(limit=1, category="crypto")
-        reddit_news = self.news_engine.get_top_news(limit=1, category="reddit")
+        reports = {
+            "market": self.news_engine.get_top_news(limit=1, category="market"),
+            "general": self.news_engine.get_top_news(limit=1, category="general"),
+            "ai": self.news_engine.get_top_news(limit=1, category="ai"),
+            "fed": self.news_engine.get_top_news(limit=1, category="fed"),
+            "geo": self.news_engine.get_top_news(limit=1, category="geo"),
+            "crypto": self.news_engine.get_top_news(limit=1, category="crypto"),
+            "reddit": self.news_engine.get_top_news(limit=1, category="reddit"),
+        }
 
         return {
             "dashboard": dashboard,
             "top_items": {
-                "market": self._first_item(market_news),
-                "general": self._first_item(general_news),
-                "ai": self._first_item(ai_news),
-                "fed": self._first_item(fed_news),
-                "geo": self._first_item(geo_news),
-                "crypto": self._first_item(crypto_news),
-                "reddit": self._first_item(reddit_news),
+                "market": self._first_item(reports["market"]),
+                "general": self._first_item(reports["general"]),
+                "ai": self._first_item(reports["ai"]),
+                "fed": self._first_item(reports["fed"]),
+                "geo": self._first_item(reports["geo"]),
+                "crypto": self._first_item(reports["crypto"]),
+                "reddit": self._first_item(reports["reddit"]),
             },
-            "provider_used": self.news_engine.last_provider_used,
+            "provider_used": self._brief_provider_text(reports),
             "updated": dashboard.get("updated", "Unknown"),
             "watch_list": self._build_watch_list(dashboard),
         }
@@ -45,6 +47,29 @@ class BriefEngine:
         if not items:
             return None
         return items[0]
+
+    def _brief_provider_text(self, reports):
+        """Show all providers checked instead of only the last category checked.
+
+        The old version showed Reddit RSS in the footer because Reddit was checked
+        last. That was confusing because the brief also checked Marketaux/Reuters.
+        """
+        providers = []
+
+        for report in reports.values():
+            provider_text = report.get("provider_used")
+            if not provider_text:
+                continue
+
+            for provider in provider_text.split(" + "):
+                provider = provider.strip()
+                if provider and provider not in providers:
+                    providers.append(provider)
+
+        if not providers:
+            return "No provider returned raw items"
+
+        return " + ".join(providers)
 
     def _build_watch_list(self, dashboard):
         watch = []
