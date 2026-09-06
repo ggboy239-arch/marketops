@@ -46,6 +46,7 @@ async def load():
     await bot.load_extension("cogs.market")
     await bot.load_extension("cogs.coach")
     await bot.load_extension("cogs.explain")
+    await bot.load_extension("cogs.news")
 
 
 # --------------------
