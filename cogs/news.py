@@ -18,7 +18,7 @@ class News(commands.Cog):
         self.bot = bot
         self.news = NewsEngine()
         self.auto_post_enabled = self._env_bool("NEWS_AUTO_POST", default=True)
-        self.poll_minutes = float(os.getenv("NEWS_POLL_MINUTES", "5"))
+        self.poll_minutes = float(os.getenv("NEWS_POLL_MINUTES", "1"))
         self.seen_file = Path("data/seen_news.json")
         self.seen_news = self._load_seen_news()
         self._last_poll = 0.0
@@ -71,8 +71,7 @@ class News(commands.Cog):
         except Exception as error:
             print(f"❌ /news error: {error}")
             await interaction.followup.send(
-                "⚠️ MarketOps had trouble building the news report. "
-                "Check the terminal for the error.",
+                "⚠️ MarketOps had trouble building the news report. Check the terminal for the error.",
                 ephemeral=True,
             )
 
@@ -130,8 +129,7 @@ class News(commands.Cog):
         except Exception as error:
             print(f"❌ !news error: {error}")
             await ctx.send(
-                "⚠️ MarketOps had trouble building the news report. "
-                "Check the terminal for the error."
+                "⚠️ MarketOps had trouble building the news report. Check the terminal for the error."
             )
 
     @tasks.loop(minutes=1)
@@ -175,12 +173,6 @@ class News(commands.Cog):
                 )
                 total_posted += posted_count
 
-                if posted_count:
-                    print(
-                        f"📰 Auto-posted {posted_count} news channel(s) "
-                        f"in {guild.name}."
-                    )
-
                 if missing_channels:
                     missing = ", ".join(missing_channels)
                     print(f"⚠️ Missing news channels in {guild.name}: {missing}")
@@ -189,6 +181,7 @@ class News(commands.Cog):
 
             if total_posted:
                 self._last_auto_post = report.get("updated", "Unknown")
+                print(f"📰 Auto-posted fresh news into {total_posted} channel(s).")
 
             self._save_seen_news()
 
@@ -213,9 +206,8 @@ class News(commands.Cog):
             filter_seen=False,
         )
 
-        counts = report.get("counts", {})
-        count_text = self._format_counts(counts)
         message = f"✅ Posted fresh trusted news into **{posted_count}** channel(s)."
+        count_text = self._format_counts(report.get("counts", {}))
 
         if count_text:
             message += f"\n\nFound by channel:\n{count_text}"
@@ -235,10 +227,7 @@ class News(commands.Cog):
             if not items:
                 continue
 
-            channel = discord.utils.get(
-                guild.text_channels,
-                name=channel_name,
-            )
+            channel = discord.utils.get(guild.text_channels, name=channel_name)
 
             if channel is None:
                 missing_channels.append(channel_name)
@@ -274,10 +263,9 @@ class News(commands.Cog):
 
     def _build_news_embed(self, report):
         category = report.get("category", "all")
-        title = self._title_for_category(category)
 
         embed = discord.Embed(
-            title=title,
+            title=self._title_for_category(category),
             description="Fresh Reuters-focused headlines with market impact notes.",
             color=discord.Color.blue(),
         )
@@ -301,10 +289,7 @@ class News(commands.Cog):
                     inline=False,
                 )
 
-        embed.set_footer(
-            text=f'Checked {report.get("updated", "Unknown")} • MarketOps v0.5.5'
-        )
-
+        embed.set_footer(text=f'Checked {report.get("updated", "Unknown")} • MarketOps v0.5.6')
         return embed
 
     def _format_item(self, item):
@@ -318,10 +303,7 @@ class News(commands.Cog):
         age_label = item.get("age_label", "Unknown")
         trusted_badge = "✅ Trusted" if item.get("trusted") else "⚠️ Unverified"
 
-        if link:
-            headline = f"[{title}]({link})"
-        else:
-            headline = title
+        headline = f"[{title}]({link})" if link else title
 
         value = (
             f"**{headline}**\n"
@@ -347,12 +329,12 @@ class News(commands.Cog):
         embed.add_field(
             name="Live Auto-Posting",
             value=(
-                "MarketOps checks for new fresh trusted headlines automatically and routes "
-                "them into the matching channels. Use `!news live` to check status."
+                "MarketOps checks every minute for fresh trusted headlines and routes them into the matching channels. "
+                "Use `!news live` to check status."
             ),
             inline=False,
         )
-        embed.set_footer(text="MarketOps v0.5.5")
+        embed.set_footer(text="MarketOps v0.5.6")
         return embed
 
     def _build_channel_map_embed(self):
@@ -366,15 +348,7 @@ class News(commands.Cog):
             value="Type `!news post` to send current fresh trusted headlines into the matching channels.",
             inline=False,
         )
-        embed.add_field(
-            name="Automatic posting",
-            value=(
-                "MarketOps auto-checks for new headlines while the bot is running. "
-                "It skips headlines it has already seen."
-            ),
-            inline=False,
-        )
-        embed.set_footer(text="MarketOps v0.5.5")
+        embed.set_footer(text="MarketOps v0.5.6")
         return embed
 
     def _build_sources_embed(self):
@@ -383,16 +357,12 @@ class News(commands.Cog):
             description=self.news.source_policy(),
             color=discord.Color.green(),
         )
+        embed.add_field(name="Freshness Rule", value=self.news.freshness_policy(), inline=False)
         embed.add_field(
-            name="Freshness Rule",
-            value=self.news.freshness_policy(),
-            inline=False,
-        )
-        embed.add_field(
-            name="Reliability Rule",
+            name="Important Reality",
             value=(
-                "MarketOps only posts what it fetches from trusted RSS/search feeds. "
-                "It does not make up headlines. If no matching trusted headline exists, it says so."
+                "This is near-live RSS/search monitoring, not a paid wire terminal. "
+                "MarketOps can post only after the trusted feed exposes the headline."
             ),
             inline=False,
         )
@@ -400,20 +370,17 @@ class News(commands.Cog):
             name="Recommended .env Settings",
             value=(
                 "`NEWS_REUTERS_ONLY=true`\n"
-                "`NEWS_LOOKBACK=6h`\n"
-                "`NEWS_MAX_AGE_HOURS=6`\n"
-                "`NEWS_POLL_MINUTES=5`"
+                "`NEWS_LOOKBACK=1h`\n"
+                "`NEWS_MAX_AGE_HOURS=0.5`\n"
+                "`NEWS_POLL_MINUTES=1`"
             ),
             inline=False,
         )
-        embed.set_footer(text="MarketOps v0.5.5")
+        embed.set_footer(text="MarketOps v0.5.6")
         return embed
 
     async def _build_debug_embed(self):
-        report = await asyncio.to_thread(
-            self.news.get_channel_reports,
-            limit_per_channel=5,
-        )
+        report = await asyncio.to_thread(self.news.get_channel_reports, limit_per_channel=5)
         counts = report.get("counts", {})
         self._last_check = report.get("updated", "Unknown")
         self._last_counts = counts
@@ -423,37 +390,11 @@ class News(commands.Cog):
             description="Shows how many fresh trusted headlines MarketOps found for each route.",
             color=discord.Color.gold(),
         )
-        embed.add_field(
-            name="Counts by Channel",
-            value=self._format_counts(counts) or "No fresh trusted headlines found.",
-            inline=False,
-        )
-        embed.add_field(
-            name="Last Feed Check",
-            value=self._last_check,
-            inline=True,
-        )
-        embed.add_field(
-            name="Source Policy",
-            value=report.get("source_policy", self.news.source_policy()),
-            inline=False,
-        )
-        embed.add_field(
-            name="Freshness Policy",
-            value=report.get("freshness_policy", self.news.freshness_policy()),
-            inline=False,
-        )
-        embed.add_field(
-            name="What this means",
-            value=(
-                "If a channel shows 0, MarketOps did not find a fresh trusted Reuters headline "
-                "for that category. It will not route unrelated stories just to fill the channel."
-            ),
-            inline=False,
-        )
-        embed.set_footer(
-            text=f'Checked {report.get("updated", "Unknown")} • MarketOps v0.5.5'
-        )
+        embed.add_field(name="Counts by Channel", value=self._format_counts(counts) or "No fresh trusted headlines found.", inline=False)
+        embed.add_field(name="Last Feed Check", value=self._last_check, inline=True)
+        embed.add_field(name="Source Policy", value=report.get("source_policy", self.news.source_policy()), inline=False)
+        embed.add_field(name="Freshness Policy", value=report.get("freshness_policy", self.news.freshness_policy()), inline=False)
+        embed.set_footer(text=f'Checked {report.get("updated", "Unknown")} • MarketOps v0.5.6')
         return embed
 
     def _build_live_status_embed(self):
@@ -464,73 +405,21 @@ class News(commands.Cog):
             description="Automatic fresh trusted news routing status.",
             color=discord.Color.green() if self.auto_post_enabled else discord.Color.red(),
         )
-        embed.add_field(
-            name="Auto-posting",
-            value=f"**{status}**",
-            inline=True,
-        )
-        embed.add_field(
-            name="Poll Rate",
-            value=f"Every **{self.poll_minutes:g} minutes**",
-            inline=True,
-        )
-        embed.add_field(
-            name="Seen Headlines",
-            value=f"**{len(self.seen_news)}** tracked",
-            inline=True,
-        )
-        embed.add_field(
-            name="Last Feed Check",
-            value=self._last_check,
-            inline=True,
-        )
-        embed.add_field(
-            name="Last Auto Post",
-            value=f"{self._last_auto_post} ({self._last_auto_post_count} channel updates)",
-            inline=True,
-        )
-        embed.add_field(
-            name="Current Counts",
-            value=self._format_counts(self._last_counts) or "No check completed yet.",
-            inline=False,
-        )
-        embed.add_field(
-            name="Source Policy",
-            value=self.news.source_policy(),
-            inline=False,
-        )
-        embed.add_field(
-            name="Freshness Policy",
-            value=self.news.freshness_policy(),
-            inline=False,
-        )
-        embed.add_field(
-            name="Channel Routing",
-            value=self.news.channel_map_text(),
-            inline=False,
-        )
-        embed.add_field(
-            name="Note",
-            value=(
-                "On first run, MarketOps seeds current headlines so it does not spam old news. "
-                "After that, new fresh trusted headlines are routed automatically."
-            ),
-            inline=False,
-        )
-        embed.set_footer(text="MarketOps v0.5.5")
+        embed.add_field(name="Auto-posting", value=f"**{status}**", inline=True)
+        embed.add_field(name="Poll Rate", value=f"Every **{self.poll_minutes:g} minute(s)**", inline=True)
+        embed.add_field(name="Seen Headlines", value=f"**{len(self.seen_news)}** tracked", inline=True)
+        embed.add_field(name="Last Feed Check", value=self._last_check, inline=True)
+        embed.add_field(name="Last Auto Post", value=f"{self._last_auto_post} ({self._last_auto_post_count} channel updates)", inline=True)
+        embed.add_field(name="Current Counts", value=self._format_counts(self._last_counts) or "No check completed yet.", inline=False)
+        embed.add_field(name="Freshness Policy", value=self.news.freshness_policy(), inline=False)
+        embed.set_footer(text="MarketOps v0.5.6")
         return embed
 
     def _format_counts(self, counts):
         if not counts:
             return ""
 
-        ordered = [
-            "breaking-news",
-            "ai-news",
-            "fed",
-            "geopolitics",
-            "crypto",
-        ]
+        ordered = ["breaking-news", "ai-news", "fed", "geopolitics", "crypto"]
         lines = []
 
         for channel in ordered:
@@ -572,10 +461,8 @@ class News(commands.Cog):
 
     def _all_report_items(self, report):
         items = []
-
         for channel_items in report.get("channels", {}).values():
             items.extend(channel_items)
-
         return items
 
     def _mark_items_seen(self, items):
@@ -600,7 +487,6 @@ class News(commands.Cog):
 
     def _save_seen_news(self):
         self.seen_file.parent.mkdir(parents=True, exist_ok=True)
-
         trimmed = list(self.seen_news)[-500:]
 
         with self.seen_file.open("w", encoding="utf-8") as file:
