@@ -12,7 +12,7 @@ from discord.ext import commands, tasks
 from market.news_engine import NewsEngine
 
 
-VERSION = "MarketOps v0.7.1"
+VERSION = "MarketOps v0.7.2"
 
 
 class News(commands.Cog):
@@ -372,7 +372,8 @@ class News(commands.Cog):
             name="Free Provider Setup",
             value=(
                 "Marketaux runs first when `MARKETAUX_API_KEY` is in `.env`. "
-                "Reuters RSS is the backup. Reddit RSS routes to `#reddit-hot` only."
+                "Reuters RSS is the backup. Reddit RSS routes to `#reddit-hot` only. "
+                "Reddit is rate-limited, so keep Reddit slower than normal news."
             ),
             inline=False,
         )
@@ -384,7 +385,10 @@ class News(commands.Cog):
                 "`NEWS_LOOKBACK=2h`\n"
                 "`NEWS_POLL_MINUTES=15`\n"
                 "`NEWS_FALLBACK_RSS=true`\n"
-                "`REDDIT_ENABLED=true`"
+                "`REDDIT_ENABLED=true`\n"
+                "`REDDIT_SUBREDDITS=stocks,investing,wallstreetbets`\n"
+                "`REDDIT_LIMIT_PER_SUBREDDIT=1`\n"
+                "`REDDIT_CACHE_MINUTES=15`"
             ),
             inline=False,
         )
