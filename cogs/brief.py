@@ -7,7 +7,7 @@ from discord.ext import commands
 from market.brief_engine import BriefEngine
 
 
-VERSION = "MarketOps v0.8"
+VERSION = "MarketOps v0.8.1"
 
 
 class Brief(commands.Cog):
@@ -77,7 +77,7 @@ class Brief(commands.Cog):
         embed.add_field(
             name="⚡ Fast Market Check",
             value=(
-                f'**S&P:** {dashboard["leader"]}\n'
+                f'**Leader:** {dashboard["leader"]}\n'
                 f'**Weakest:** {dashboard["loser"]}\n'
                 f'**Warning:** {dashboard["warning_signal"]}\n'
                 f'**Oil/Geo:** {dashboard["energy_signal"]}\n'
@@ -137,7 +137,7 @@ class Brief(commands.Cog):
         embed.set_footer(
             text=(
                 f'Updated {brief.get("updated", "Unknown")} • '
-                f'Provider: {brief.get("provider_used", "Unknown")} • {VERSION}'
+                f'Providers checked: {brief.get("provider_used", "Unknown")} • {VERSION}'
             )
         )
         return embed
