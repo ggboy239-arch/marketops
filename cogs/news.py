@@ -83,6 +83,7 @@ class News(commands.Cog):
         !news fed
         !news crypto
         !news channels
+        !news debug
         !news post
         !news live
         """
@@ -95,6 +96,10 @@ class News(commands.Cog):
 
             if category in ("channels", "channel"):
                 await ctx.send(embed=self._build_channel_map_embed())
+                return
+
+            if category in ("debug", "counts", "count"):
+                await ctx.send(embed=await self._build_debug_embed())
                 return
 
             if category in ("live", "status"):
@@ -186,7 +191,12 @@ class News(commands.Cog):
             filter_seen=False,
         )
 
+        counts = report.get("counts", {})
+        count_text = self._format_counts(counts)
         message = f"✅ Posted news into **{posted_count}** channel(s)."
+
+        if count_text:
+            message += f"\n\nFound by channel:\n{count_text}"
 
         if missing_channels:
             missing = ", ".join(f"#{name}" for name in missing_channels)
@@ -265,7 +275,7 @@ class News(commands.Cog):
                 )
 
         embed.set_footer(
-            text=f'Updated {report.get("updated", "Unknown")} • MarketOps v0.5.2'
+            text=f'Updated {report.get("updated", "Unknown")} • MarketOps v0.5.3'
         )
 
         return embed
@@ -310,7 +320,7 @@ class News(commands.Cog):
             ),
             inline=False,
         )
-        embed.set_footer(text="MarketOps v0.5.2")
+        embed.set_footer(text="MarketOps v0.5.3")
         return embed
 
     def _build_channel_map_embed(self):
@@ -332,7 +342,37 @@ class News(commands.Cog):
             ),
             inline=False,
         )
-        embed.set_footer(text="MarketOps v0.5.2")
+        embed.set_footer(text="MarketOps v0.5.3")
+        return embed
+
+    async def _build_debug_embed(self):
+        report = await asyncio.to_thread(
+            self.news.get_channel_reports,
+            limit_per_channel=5,
+        )
+        counts = report.get("counts", {})
+
+        embed = discord.Embed(
+            title="🧪 MarketOps News Debug",
+            description="Shows how many current headlines MarketOps found for each route.",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(
+            name="Counts by Channel",
+            value=self._format_counts(counts) or "No headlines found.",
+            inline=False,
+        )
+        embed.add_field(
+            name="What this means",
+            value=(
+                "If only one channel has headlines, the current RSS batch is limited. "
+                "Use `!news post` to route what is available, or check a specific category like `!news geo`."
+            ),
+            inline=False,
+        )
+        embed.set_footer(
+            text=f'Updated {report.get("updated", "Unknown")} • MarketOps v0.5.3'
+        )
         return embed
 
     def _build_live_status_embed(self):
@@ -371,8 +411,31 @@ class News(commands.Cog):
             ),
             inline=False,
         )
-        embed.set_footer(text="MarketOps v0.5.2")
+        embed.set_footer(text="MarketOps v0.5.3")
         return embed
+
+    def _format_counts(self, counts):
+        if not counts:
+            return ""
+
+        ordered = [
+            "breaking-news",
+            "ai-news",
+            "fed",
+            "geopolitics",
+            "crypto",
+        ]
+        lines = []
+
+        for channel in ordered:
+            if channel in counts:
+                lines.append(f"• `#{channel}` — **{counts[channel]}** headline(s)")
+
+        for channel, count in counts.items():
+            if channel not in ordered:
+                lines.append(f"• `#{channel}` — **{count}** headline(s)")
+
+        return "\n".join(lines)
 
     def _title_for_category(self, category):
         titles = {
