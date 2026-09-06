@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -5,9 +6,9 @@ from providers.rss_provider import RSSProvider
 
 
 class NewsEngine:
-    """Turns raw RSS headlines into market-aware news cards.
+    """Turns trusted RSS headlines into market-aware news cards.
 
-    Provider job: fetch headlines.
+    Provider job: fetch and verify headlines.
     Engine job: classify headlines, explain why they matter, choose what to watch,
     and decide which Discord channel should receive the headline.
     """
@@ -17,11 +18,14 @@ class NewsEngine:
             "ai",
             "artificial intelligence",
             "nvidia",
+            "nvda",
             "amd",
             "semiconductor",
+            "semiconductors",
             "chip",
             "chips",
             "data center",
+            "data centers",
             "microsoft",
             "amazon",
             "apple",
@@ -33,7 +37,8 @@ class NewsEngine:
             "fed",
             "federal reserve",
             "powell",
-            "rate",
+            "rate hike",
+            "rate cut",
             "rates",
             "yield",
             "yields",
@@ -42,8 +47,9 @@ class NewsEngine:
             "inflation",
             "cpi",
             "ppi",
-            "jobs",
+            "jobs report",
             "payroll",
+            "payrolls",
             "gdp",
         ],
         "🛢 Oil / Geopolitics": [
@@ -63,6 +69,9 @@ class NewsEngine:
             "china",
             "taiwan",
             "north korea",
+            "nato",
+            "war",
+            "sanctions",
         ],
         "₿ Crypto": [
             "bitcoin",
@@ -83,13 +92,12 @@ class NewsEngine:
             "shares",
             "wall street",
             "s&p",
+            "s&p 500",
             "nasdaq",
             "dow",
             "futures",
-            "market",
-            "markets",
+            "global markets",
             "investors",
-            "etf",
         ],
     }
 
@@ -157,6 +165,7 @@ class NewsEngine:
             "category": category or "all",
             "tag_filter": tag_filter,
             "updated": self._timestamp(),
+            "source_policy": self.provider.source_policy(),
         }
 
     def get_channel_reports(self, limit_per_channel=3):
@@ -179,6 +188,7 @@ class NewsEngine:
             "channels": reports,
             "counts": {channel: len(items) for channel, items in reports.items()},
             "updated": self._timestamp(),
+            "source_policy": self.provider.source_policy(),
         }
 
     def channel_map_text(self):
@@ -189,22 +199,29 @@ class NewsEngine:
 
         return "\n".join(lines)
 
+    def source_policy(self):
+        return self.provider.source_policy()
+
     def category_help(self):
         return (
             "Use one of these:\n"
-            "• `!news` — all market news\n"
+            "• `!news` — all trusted market news\n"
             "• `!news ai` — AI / tech\n"
             "• `!news fed` — Fed / rates / inflation\n"
             "• `!news geo` — oil / geopolitics\n"
             "• `!news crypto` — bitcoin / crypto\n"
             "• `!news market` — broad market\n"
             "• `!news channels` — show channel routing\n"
+            "• `!news sources` — show trusted-source policy\n"
             "• `!news debug` — show how many headlines each channel found\n"
             "• `!news post` — post headlines into the matching channels"
         )
 
     def _classify(self, item):
-        text = f'{item.get("title", "")} {item.get("summary", "")}'.lower()
+        # Routing is based on the headline and trusted category hint only.
+        # We avoid RSS summaries because some feeds stuff unrelated headlines into them,
+        # which caused bad routing such as random stories going to crypto or AI.
+        title_text = self._normalize_text(item.get("title", ""))
         tags = []
         score = 1
 
@@ -214,7 +231,7 @@ class NewsEngine:
             score += 1
 
         for tag, keywords in self.KEYWORDS.items():
-            if any(keyword in text for keyword in keywords):
+            if self._matches_any(title_text, keywords):
                 tags.append(tag)
                 score += 1
 
@@ -244,6 +261,7 @@ class NewsEngine:
             "importance_score": score,
             "why_it_matters": self._why_it_matters(tags),
             "watch": self._watch(tags),
+            "trusted": item.get("trusted", False),
         }
 
     def _resolve_category(self, category):
@@ -269,6 +287,24 @@ class NewsEngine:
                 deduped.append(tag)
 
         return deduped
+
+    def _matches_any(self, text, keywords):
+        return any(self._keyword_match(text, keyword) for keyword in keywords)
+
+    def _keyword_match(self, text, keyword):
+        normalized_keyword = self._normalize_text(keyword)
+
+        if not normalized_keyword:
+            return False
+
+        pattern = rf"(?<![a-z0-9]){re.escape(normalized_keyword)}(?![a-z0-9])"
+
+        return re.search(pattern, text) is not None
+
+    def _normalize_text(self, text):
+        text = (text or "").lower()
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
 
     def _importance(self, score):
         if score >= 4:
