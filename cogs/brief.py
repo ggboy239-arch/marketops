@@ -1,25 +1,45 @@
 import asyncio
+import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from market.brief_engine import BriefEngine
 
 
-VERSION = "MarketOps v0.8.1"
+VERSION = "MarketOps v0.9"
+PT_ZONE = ZoneInfo("America/Los_Angeles")
 
 
 class Brief(commands.Cog):
-    """Discord commands for the MarketOps morning brief."""
+    """Discord commands and schedule for the MarketOps brief.
+
+    This file is the Discord side of the brief.
+    It listens for !brief and /brief, and it can auto-post the brief on a
+    Pacific Time schedule from the .env file.
+    """
 
     def __init__(self, bot):
         self.bot = bot
         self.brief_engine = BriefEngine()
+        self.auto_post_enabled = self._env_bool("BRIEF_AUTO_POST", default=False)
+        self.brief_channel_name = os.getenv("BRIEF_CHANNEL", "morning-brief").strip()
+        self.brief_times = self._load_times()
+        self._posted_keys = set()
+
+        if self.auto_post_enabled and not self.scheduled_brief_loop.is_running():
+            self.scheduled_brief_loop.start()
+
+    def cog_unload(self):
+        if self.scheduled_brief_loop.is_running():
+            self.scheduled_brief_loop.cancel()
 
     @app_commands.command(
         name="brief",
-        description="View the MarketOps morning brief.",
+        description="View the MarketOps brief.",
     )
     async def brief_slash(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
@@ -31,29 +51,70 @@ class Brief(commands.Cog):
         except Exception as error:
             print(f"❌ /brief error: {error}")
             await interaction.followup.send(
-                "⚠️ MarketOps had trouble building the morning brief. Check the terminal for the error.",
+                "⚠️ MarketOps had trouble building the brief. Check the terminal for the error.",
                 ephemeral=True,
             )
 
     @commands.command(name="brief")
-    async def brief_prefix(self, ctx):
-        """Desktop/web fallback command. Type !brief."""
+    async def brief_prefix(self, ctx, action="now"):
+        """Desktop/web fallback command.
+
+        Type !brief for the brief.
+        Type !brief schedule to see the Pacific Time auto-post setup.
+        """
         try:
+            action = (action or "now").lower().strip()
+
+            if action in ("schedule", "time", "times", "status"):
+                await ctx.send(embed=self._build_schedule_embed())
+                return
+
             brief = await asyncio.to_thread(self.brief_engine.build_brief)
             embed = self._build_brief_embed(brief)
             await ctx.send(embed=embed)
         except Exception as error:
             print(f"❌ !brief error: {error}")
             await ctx.send(
-                "⚠️ MarketOps had trouble building the morning brief. Check the terminal for the error."
+                "⚠️ MarketOps had trouble building the brief. Check the terminal for the error."
             )
+
+    @tasks.loop(seconds=30)
+    async def scheduled_brief_loop(self):
+        await self.bot.wait_until_ready()
+
+        now = datetime.now(PT_ZONE)
+        current_time = now.strftime("%H:%M")
+        current_date = now.strftime("%Y-%m-%d")
+
+        if current_time not in self.brief_times:
+            return
+
+        post_key = f"{current_date}-{current_time}"
+        if post_key in self._posted_keys:
+            return
+
+        self._posted_keys.add(post_key)
+
+        for guild in self.bot.guilds:
+            channel = discord.utils.get(guild.text_channels, name=self.brief_channel_name)
+            if channel is None:
+                print(f"⚠️ Brief channel #{self.brief_channel_name} not found in {guild.name}.")
+                continue
+
+            try:
+                brief = await asyncio.to_thread(self.brief_engine.build_brief)
+                embed = self._build_brief_embed(brief)
+                await channel.send(embed=embed)
+                print(f"🌅 Posted scheduled brief to #{self.brief_channel_name} at {current_time} PT.")
+            except Exception as error:
+                print(f"❌ Scheduled brief error: {error}")
 
     def _build_brief_embed(self, brief):
         dashboard = brief["dashboard"]
         top_items = brief["top_items"]
 
         embed = discord.Embed(
-            title="🌅 MarketOps Morning Brief",
+            title="🌅 MarketOps Brief",
             description="One quick read before you look at charts or headlines.",
             color=self._risk_color(dashboard["score"]),
         )
@@ -136,10 +197,36 @@ class Brief(commands.Cog):
 
         embed.set_footer(
             text=(
-                f'Updated {brief.get("updated", "Unknown")} • '
+                f'Updated {brief.get("updated", "Unknown")} PT • '
                 f'Providers checked: {brief.get("provider_used", "Unknown")} • {VERSION}'
             )
         )
+        return embed
+
+    def _build_schedule_embed(self):
+        status = "ON" if self.auto_post_enabled else "OFF"
+        times = ", ".join(self.brief_times) if self.brief_times else "No times set"
+        now = datetime.now(PT_ZONE).strftime("%I:%M %p PT").lstrip("0")
+
+        embed = discord.Embed(
+            title="⏰ MarketOps Brief Schedule",
+            description="Brief auto-posting uses Pacific Time automatically.",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(name="Auto-post", value=f"**{status}**", inline=True)
+        embed.add_field(name="Channel", value=f"`#{self.brief_channel_name}`", inline=True)
+        embed.add_field(name="Current PT Time", value=now, inline=True)
+        embed.add_field(name="Brief Times PT", value=f"`{times}`", inline=False)
+        embed.add_field(
+            name="Recommended Times",
+            value=(
+                "`05:30` pre-market setup\n"
+                "`09:30` mid-morning check\n"
+                "`13:15` after-close recap"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text=VERSION)
         return embed
 
     def _format_item(self, item, reddit=False):
@@ -174,6 +261,32 @@ class Brief(commands.Cog):
         if score <= 45:
             return discord.Color.orange()
         return discord.Color.gold()
+
+    def _load_times(self):
+        raw = os.getenv("BRIEF_TIMES_PT") or os.getenv("BRIEF_TIME_PT") or "05:30"
+        times = []
+
+        for item in raw.split(","):
+            cleaned = item.strip()
+            if self._valid_time(cleaned):
+                times.append(cleaned)
+
+        return times or ["05:30"]
+
+    def _valid_time(self, value):
+        try:
+            datetime.strptime(value, "%H:%M")
+            return True
+        except Exception:
+            return False
+
+    def _env_bool(self, name, default=False):
+        value = os.getenv(name)
+
+        if value is None:
+            return default
+
+        return value.strip().lower() in ("1", "true", "yes", "y", "on")
 
 
 async def setup(bot):
