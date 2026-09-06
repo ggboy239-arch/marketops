@@ -12,7 +12,7 @@ from discord.ext import commands, tasks
 from market.news_engine import NewsEngine
 
 
-VERSION = "MarketOps v0.6.3"
+VERSION = "MarketOps v0.7"
 
 
 class News(commands.Cog):
@@ -80,22 +80,7 @@ class News(commands.Cog):
 
     @commands.command(name="news")
     async def news_prefix(self, ctx, category="all"):
-        """Desktop/web fallback command.
-
-        Examples:
-        !news
-        !news market
-        !news general
-        !news ai
-        !news geo
-        !news fed
-        !news crypto
-        !news channels
-        !news sources
-        !news debug
-        !news post
-        !news live
-        """
+        """Desktop/web fallback command."""
         try:
             category = category.lower().strip()
 
@@ -107,7 +92,7 @@ class News(commands.Cog):
                 await ctx.send(embed=self._build_channel_map_embed())
                 return
 
-            if category in ("sources", "source", "reuters", "finlight"):
+            if category in ("sources", "source", "reuters", "marketaux", "finlight"):
                 await ctx.send(embed=self._build_sources_embed())
                 return
 
@@ -382,18 +367,20 @@ class News(commands.Cog):
         )
         embed.add_field(name="Freshness Rule", value=self.news.freshness_policy(), inline=False)
         embed.add_field(
-            name="Important Reality",
+            name="Free Provider Setup",
             value=(
-                "Free RSS/search monitoring is near-live, but true instant breaking news requires "
-                "a paid push feed such as WebSocket or webhook access."
+                "Add `MARKETAUX_API_KEY=your_key_here` to `.env` to use Marketaux first. "
+                "Keep `NEWS_FALLBACK_RSS=true` so Reuters RSS stays as backup."
             ),
             inline=False,
         )
         embed.add_field(
             name="Recommended .env Settings",
             value=(
-                "`NEWS_MAX_AGE_HOURS=0.25`\n"
-                "`NEWS_POLL_MINUTES=1`\n"
+                "`MARKETAUX_API_KEY=your_key_here`\n"
+                "`NEWS_MAX_AGE_HOURS=1`\n"
+                "`NEWS_LOOKBACK=2h`\n"
+                "`NEWS_POLL_MINUTES=15`\n"
                 "`NEWS_FALLBACK_RSS=true`"
             ),
             inline=False,
