@@ -16,21 +16,11 @@ class MarketauxProvider:
 
     BASE_URL = "https://api.marketaux.com/v1/news/all"
 
-    DEFAULT_DOMAINS = [
-        "reuters.com",
-        "benzinga.com",
-        "cnbc.com",
-        "marketwatch.com",
-        "apnews.com",
-        "finance.yahoo.com",
-    ]
-
     DEFAULT_SYMBOLS = [
         "SPY",
         "QQQ",
         "DIA",
         "IWM",
-        "VIX",
         "AAPL",
         "MSFT",
         "NVDA",
@@ -39,13 +29,15 @@ class MarketauxProvider:
         "GOOGL",
         "META",
         "TSLA",
-        "BTC",
-        "ETH",
         "XOM",
         "CVX",
         "LMT",
         "RTX",
+        "BTC",
+        "ETH",
     ]
+
+    DEFAULT_DOMAINS = []
 
     def __init__(self):
         self.api_key = os.getenv("MARKETAUX_API_KEY") or os.getenv("MARKETAUX_API_TOKEN")
@@ -57,9 +49,13 @@ class MarketauxProvider:
         self.domains = self._load_csv("MARKETAUX_DOMAINS", self.DEFAULT_DOMAINS)
         self.symbols = self._load_csv("MARKETAUX_SYMBOLS", self.DEFAULT_SYMBOLS)
         self.lookback = os.getenv("NEWS_LOOKBACK", "2h")
+        self.filter_entities = self._env_bool("MARKETAUX_FILTER_ENTITIES", default=False)
+        self.last_status = "Not checked yet"
+        self.last_count = 0
 
     def get_latest_news(self, limit=25):
         if not self.enabled:
+            self.last_status = "OFF: MARKETAUX_API_KEY missing"
             return []
 
         request_limit = min(max(1, limit), self.limit)
@@ -68,10 +64,12 @@ class MarketauxProvider:
             "api_token": self.api_key,
             "language": self.language,
             "countries": self.countries,
-            "filter_entities": "true",
             "limit": request_limit,
             "published_after": self._published_after(),
         }
+
+        if self.filter_entities:
+            params["filter_entities"] = "true"
 
         if self.domains:
             params["domains"] = ",".join(self.domains)
@@ -80,31 +78,27 @@ class MarketauxProvider:
             params["symbols"] = ",".join(self.symbols)
 
         try:
-            response = requests.get(
-                self.BASE_URL,
-                params=params,
-                timeout=self.timeout,
-            )
+            response = requests.get(self.BASE_URL, params=params, timeout=self.timeout)
             response.raise_for_status()
             payload = response.json()
             articles = self._extract_articles(payload)
+            self.last_count = len(articles)
+            self.last_status = f"OK: {self.last_count} raw article(s) returned"
 
             return [self._normalize_article(article) for article in articles]
 
         except Exception as error:
+            self.last_status = f"ERROR: {error}"
             print(f"❌ Marketaux API error: {error}")
             return []
 
     def source_policy(self):
         if not self.enabled:
-            return (
-                "Marketaux is OFF because MARKETAUX_API_KEY is missing. "
-                "MarketOps is using Reuters-focused RSS fallback."
-            )
+            return "Marketaux is OFF because MARKETAUX_API_KEY is missing."
 
         return (
-            "Marketaux mode is ON. MarketOps checks Marketaux first for free market-news API coverage, "
-            "then uses Reuters-focused RSS fallback when enabled."
+            "Marketaux mode is ON. MarketOps checks Marketaux first for free market-news API coverage. "
+            f"Last Marketaux status: {self.last_status}."
         )
 
     def _extract_articles(self, payload):
@@ -219,3 +213,9 @@ class MarketauxProvider:
                 values.append(cleaned)
 
         return values
+
+    def _env_bool(self, name, default=False):
+        value = os.getenv(name)
+        if value is None:
+            return default
+        return value.strip().lower() in ("1", "true", "yes", "y", "on")
