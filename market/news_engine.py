@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -147,10 +148,12 @@ class NewsEngine:
 
     def __init__(self):
         self.provider = RSSProvider()
+        self.max_age_hours = float(os.getenv("NEWS_MAX_AGE_HOURS", "6"))
 
     def get_top_news(self, limit=5, category="all"):
         raw_items = self.provider.get_latest_news(limit=50)
         classified_items = [self._classify(item) for item in raw_items]
+        classified_items = [item for item in classified_items if self._is_fresh(item)]
 
         tag_filter = self._resolve_category(category)
         if tag_filter is not None:
@@ -166,11 +169,13 @@ class NewsEngine:
             "tag_filter": tag_filter,
             "updated": self._timestamp(),
             "source_policy": self.provider.source_policy(),
+            "freshness_policy": self.freshness_policy(),
         }
 
     def get_channel_reports(self, limit_per_channel=3):
         raw_items = self.provider.get_latest_news(limit=75)
         classified_items = [self._classify(item) for item in raw_items]
+        classified_items = [item for item in classified_items if self._is_fresh(item)]
         classified_items.sort(key=lambda item: item["importance_score"], reverse=True)
 
         reports = {channel: [] for channel in self.CHANNEL_ORDER}
@@ -189,6 +194,7 @@ class NewsEngine:
             "counts": {channel: len(items) for channel, items in reports.items()},
             "updated": self._timestamp(),
             "source_policy": self.provider.source_policy(),
+            "freshness_policy": self.freshness_policy(),
         }
 
     def channel_map_text(self):
@@ -202,6 +208,12 @@ class NewsEngine:
     def source_policy(self):
         return self.provider.source_policy()
 
+    def freshness_policy(self):
+        return (
+            f"MarketOps shows trusted headlines published within the last "
+            f"{self.max_age_hours:g} hour(s)."
+        )
+
     def category_help(self):
         return (
             "Use one of these:\n"
@@ -213,14 +225,11 @@ class NewsEngine:
             "• `!news market` — broad market\n"
             "• `!news channels` — show channel routing\n"
             "• `!news sources` — show trusted-source policy\n"
-            "• `!news debug` — show how many headlines each channel found\n"
-            "• `!news post` — post headlines into the matching channels"
+            "• `!news debug` — show how many fresh headlines each channel found\n"
+            "• `!news post` — post fresh headlines into the matching channels"
         )
 
     def _classify(self, item):
-        # Routing is based on the headline and trusted category hint only.
-        # We avoid RSS summaries because some feeds stuff unrelated headlines into them,
-        # which caused bad routing such as random stories going to crypto or AI.
         title_text = self._normalize_text(item.get("title", ""))
         tags = []
         score = 1
@@ -246,6 +255,7 @@ class NewsEngine:
         if item.get("source", "").lower().startswith("reuters"):
             score += 1
 
+        published_dt = item.get("published_dt")
         importance = self._importance(score)
 
         return {
@@ -254,6 +264,10 @@ class NewsEngine:
             "link": item.get("link", ""),
             "summary": item.get("summary", ""),
             "published": item.get("published", ""),
+            "published_dt": published_dt,
+            "published_label": self._published_label(published_dt),
+            "age_label": self._age_label(published_dt),
+            "age_minutes": self._age_minutes(published_dt),
             "tags": tags,
             "primary_tag": primary_tag,
             "channel": channel,
@@ -263,6 +277,14 @@ class NewsEngine:
             "watch": self._watch(tags),
             "trusted": item.get("trusted", False),
         }
+
+    def _is_fresh(self, item):
+        age_minutes = item.get("age_minutes")
+
+        if age_minutes is None:
+            return False
+
+        return age_minutes <= self.max_age_hours * 60
 
     def _resolve_category(self, category):
         if category is None:
@@ -363,6 +385,54 @@ class NewsEngine:
                 deduped.append(item)
 
         return ", ".join(deduped[:5])
+
+    def _published_label(self, published_dt):
+        if published_dt is None:
+            return "Unknown"
+
+        try:
+            local_time = published_dt.astimezone(ZoneInfo("America/Los_Angeles"))
+            return local_time.strftime("%I:%M %p PT").lstrip("0")
+        except Exception:
+            return "Unknown"
+
+    def _age_label(self, published_dt):
+        minutes = self._age_minutes(published_dt)
+
+        if minutes is None:
+            return "Unknown"
+
+        if minutes < 1:
+            return "just now"
+
+        if minutes < 60:
+            return f"{minutes}m ago"
+
+        hours = minutes // 60
+        remaining_minutes = minutes % 60
+
+        if remaining_minutes == 0:
+            return f"{hours}h ago"
+
+        return f"{hours}h {remaining_minutes}m ago"
+
+    def _age_minutes(self, published_dt):
+        if published_dt is None:
+            return None
+
+        try:
+            now = datetime.now(ZoneInfo("UTC"))
+
+            if published_dt.tzinfo is None:
+                published_dt = published_dt.replace(tzinfo=ZoneInfo("UTC"))
+
+            published_utc = published_dt.astimezone(ZoneInfo("UTC"))
+            seconds = (now - published_utc).total_seconds()
+
+            return max(0, int(seconds // 60))
+
+        except Exception:
+            return None
 
     def _timestamp(self):
         now = datetime.now(ZoneInfo("America/Los_Angeles"))
