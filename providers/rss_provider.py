@@ -76,10 +76,10 @@ class RSSProvider:
             "NEWS_INCLUDE_EXTRA_SOURCES",
             default=False,
         )
-        self.lookback = os.getenv("NEWS_LOOKBACK", "24h")
+        self.lookback = os.getenv("NEWS_LOOKBACK", "6h")
         self.feeds = feeds or self._load_feeds()
         self.headers = {
-            "User-Agent": "MarketOps/0.5.4 (trusted market news monitor)",
+            "User-Agent": "MarketOps/0.5.5 (trusted near-live market news monitor)",
         }
 
     def get_latest_news(self, limit=10):
@@ -97,12 +97,14 @@ class RSSProvider:
         if self.reuters_only:
             return (
                 "Reuters-only mode is ON. MarketOps keeps only headlines that "
-                "can be verified as Reuters results from the RSS item source/title."
+                "can be verified as Reuters results from the RSS item source/title. "
+                f"Current search lookback: {self.lookback}."
             )
 
         return (
             "Reuters-only mode is OFF. MarketOps also allows approved extra "
-            "sources like Yahoo Finance and CNBC if NEWS_INCLUDE_EXTRA_SOURCES=true."
+            "sources like Yahoo Finance and CNBC if NEWS_INCLUDE_EXTRA_SOURCES=true. "
+            f"Current search lookback: {self.lookback}."
         )
 
     def _load_feeds(self):
@@ -199,10 +201,8 @@ class RSSProvider:
         if not self._is_trusted_item(feed, raw_title, link, item_source):
             return None
 
-        source_name = self._source_name(feed, item_source)
-
         return {
-            "source": source_name,
+            "source": self._source_name(feed, item_source),
             "title": self._clean_google_news_title(self._clean_text(raw_title)),
             "link": link or "",
             "summary": self._clean_text(description or ""),
