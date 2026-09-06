@@ -16,6 +16,7 @@ intents.members = True
 bot = commands.Bot(
     command_prefix="!",
     intents=intents,
+    case_insensitive=True,
 )
 
 
@@ -44,6 +45,7 @@ async def load():
     await bot.load_extension("cogs.ping")
     await bot.load_extension("cogs.market")
     await bot.load_extension("cogs.coach")
+    await bot.load_extension("cogs.explain")
 
 
 # --------------------
