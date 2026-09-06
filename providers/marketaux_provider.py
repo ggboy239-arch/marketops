@@ -1,0 +1,221 @@
+import os
+from datetime import datetime, timedelta, timezone
+
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+class MarketauxProvider:
+    """Fetches free/low-cost market news from Marketaux.
+
+    Marketaux is optional. If MARKETAUX_API_KEY or MARKETAUX_API_TOKEN is missing,
+    MarketOps will keep using the Reuters-focused RSS fallback.
+    """
+
+    BASE_URL = "https://api.marketaux.com/v1/news/all"
+
+    DEFAULT_DOMAINS = [
+        "reuters.com",
+        "benzinga.com",
+        "cnbc.com",
+        "marketwatch.com",
+        "apnews.com",
+        "finance.yahoo.com",
+    ]
+
+    DEFAULT_SYMBOLS = [
+        "SPY",
+        "QQQ",
+        "DIA",
+        "IWM",
+        "VIX",
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "AMD",
+        "AMZN",
+        "GOOGL",
+        "META",
+        "TSLA",
+        "BTC",
+        "ETH",
+        "XOM",
+        "CVX",
+        "LMT",
+        "RTX",
+    ]
+
+    def __init__(self):
+        self.api_key = os.getenv("MARKETAUX_API_KEY") or os.getenv("MARKETAUX_API_TOKEN")
+        self.enabled = bool(self.api_key)
+        self.timeout = int(os.getenv("MARKETAUX_TIMEOUT_SECONDS", "10"))
+        self.limit = int(os.getenv("MARKETAUX_LIMIT", "10"))
+        self.countries = os.getenv("MARKETAUX_COUNTRIES", "us")
+        self.language = os.getenv("MARKETAUX_LANGUAGE", "en")
+        self.domains = self._load_csv("MARKETAUX_DOMAINS", self.DEFAULT_DOMAINS)
+        self.symbols = self._load_csv("MARKETAUX_SYMBOLS", self.DEFAULT_SYMBOLS)
+        self.lookback = os.getenv("NEWS_LOOKBACK", "2h")
+
+    def get_latest_news(self, limit=25):
+        if not self.enabled:
+            return []
+
+        request_limit = min(max(1, limit), self.limit)
+
+        params = {
+            "api_token": self.api_key,
+            "language": self.language,
+            "countries": self.countries,
+            "filter_entities": "true",
+            "limit": request_limit,
+            "published_after": self._published_after(),
+        }
+
+        if self.domains:
+            params["domains"] = ",".join(self.domains)
+
+        if self.symbols:
+            params["symbols"] = ",".join(self.symbols)
+
+        try:
+            response = requests.get(
+                self.BASE_URL,
+                params=params,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            articles = self._extract_articles(payload)
+
+            return [self._normalize_article(article) for article in articles]
+
+        except Exception as error:
+            print(f"❌ Marketaux API error: {error}")
+            return []
+
+    def source_policy(self):
+        if not self.enabled:
+            return (
+                "Marketaux is OFF because MARKETAUX_API_KEY is missing. "
+                "MarketOps is using Reuters-focused RSS fallback."
+            )
+
+        return (
+            "Marketaux mode is ON. MarketOps checks Marketaux first for free market-news API coverage, "
+            "then uses Reuters-focused RSS fallback when enabled."
+        )
+
+    def _extract_articles(self, payload):
+        if isinstance(payload, list):
+            return payload
+
+        if not isinstance(payload, dict):
+            return []
+
+        value = payload.get("data")
+        if isinstance(value, list):
+            return value
+
+        for key in ("articles", "results", "items"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+
+        return []
+
+    def _normalize_article(self, article):
+        title = self._first_string(article, ["title", "headline", "name"], default="Untitled")
+        link = self._first_string(article, ["url", "link", "article_url", "articleUrl"])
+        summary = self._first_string(article, ["description", "snippet", "summary", "text"])
+        published_raw = self._first_string(
+            article,
+            ["published_at", "publishedAt", "published", "published_date", "date"],
+        )
+        source = self._source_name(article)
+
+        return {
+            "source": source,
+            "title": title,
+            "link": link,
+            "summary": summary,
+            "published": published_raw,
+            "published_dt": self._parse_date(published_raw),
+            "category_hint": None,
+            "trusted": True,
+            "provider": "Marketaux",
+        }
+
+    def _source_name(self, article):
+        source = article.get("source")
+
+        if isinstance(source, str) and source.strip():
+            return source.strip()
+
+        if isinstance(source, dict):
+            for key in ("name", "domain", "url", "site"):
+                value = source.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+
+        for key in ("source_name", "sourceName", "publisher", "domain"):
+            value = article.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        return "Marketaux"
+
+    def _first_string(self, article, keys, default=""):
+        for key in keys:
+            value = article.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        return default
+
+    def _parse_date(self, value):
+        if not value:
+            return None
+
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except Exception:
+            return None
+
+    def _published_after(self):
+        delta = self._lookback_delta(self.lookback)
+        published_after = datetime.now(timezone.utc) - delta
+        return published_after.strftime("%Y-%m-%dT%H:%M")
+
+    def _lookback_delta(self, value):
+        value = (value or "2h").strip().lower()
+
+        try:
+            if value.endswith("m"):
+                return timedelta(minutes=int(value[:-1]))
+            if value.endswith("h"):
+                return timedelta(hours=int(value[:-1]))
+            if value.endswith("d"):
+                return timedelta(days=int(value[:-1]))
+        except Exception:
+            pass
+
+        return timedelta(hours=2)
+
+    def _load_csv(self, name, default):
+        raw = os.getenv(name)
+
+        if raw is None:
+            return list(default)
+
+        values = []
+        for item in raw.split(","):
+            cleaned = item.strip()
+            if cleaned:
+                values.append(cleaned)
+
+        return values
