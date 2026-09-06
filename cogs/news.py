@@ -1,6 +1,13 @@
+import asyncio
+import hashlib
+import json
+import os
+from pathlib import Path
+from time import monotonic
+
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from market.news_engine import NewsEngine
 
@@ -10,6 +17,18 @@ class News(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.news = NewsEngine()
+        self.auto_post_enabled = self._env_bool("NEWS_AUTO_POST", default=True)
+        self.poll_minutes = float(os.getenv("NEWS_POLL_MINUTES", "10"))
+        self.seen_file = Path("data/seen_news.json")
+        self.seen_news = self._load_seen_news()
+        self._last_poll = 0.0
+
+        if self.auto_post_enabled and not self.auto_news_loop.is_running():
+            self.auto_news_loop.start()
+
+    def cog_unload(self):
+        if self.auto_news_loop.is_running():
+            self.auto_news_loop.cancel()
 
     @app_commands.command(
         name="news",
@@ -37,7 +56,11 @@ class News(commands.Cog):
 
         try:
             selected_category = category.value if category else "all"
-            report = self.news.get_top_news(limit=5, category=selected_category)
+            report = await asyncio.to_thread(
+                self.news.get_top_news,
+                limit=5,
+                category=selected_category,
+            )
             embed = self._build_news_embed(report)
             await interaction.followup.send(embed=embed)
 
@@ -61,6 +84,7 @@ class News(commands.Cog):
         !news crypto
         !news channels
         !news post
+        !news live
         """
         try:
             category = category.lower().strip()
@@ -73,11 +97,19 @@ class News(commands.Cog):
                 await ctx.send(embed=self._build_channel_map_embed())
                 return
 
+            if category in ("live", "status"):
+                await ctx.send(embed=self._build_live_status_embed())
+                return
+
             if category in ("post", "route", "send"):
                 await self._post_news_to_channels(ctx)
                 return
 
-            report = self.news.get_top_news(limit=5, category=category)
+            report = await asyncio.to_thread(
+                self.news.get_top_news,
+                limit=5,
+                category=category,
+            )
             embed = self._build_news_embed(report)
             await ctx.send(embed=embed)
 
@@ -88,12 +120,81 @@ class News(commands.Cog):
                 "Check the terminal for the error."
             )
 
+    @tasks.loop(minutes=1)
+    async def auto_news_loop(self):
+        await self.bot.wait_until_ready()
+
+        elapsed_seconds = monotonic() - self._last_poll
+        poll_seconds = self.poll_minutes * 60
+
+        if elapsed_seconds < poll_seconds:
+            return
+
+        self._last_poll = monotonic()
+
+        try:
+            report = await asyncio.to_thread(
+                self.news.get_channel_reports,
+                limit_per_channel=2,
+            )
+
+            all_items = self._all_report_items(report)
+
+            if not self.seen_news:
+                self._mark_items_seen(all_items)
+                self._save_seen_news()
+                print(
+                    "📰 News monitor seeded current headlines. "
+                    "New headlines will auto-post after this."
+                )
+                return
+
+            for guild in self.bot.guilds:
+                posted_count, missing_channels = await self._send_channel_report(
+                    guild=guild,
+                    report=report,
+                    filter_seen=True,
+                )
+
+                if posted_count:
+                    print(
+                        f"📰 Auto-posted {posted_count} news channel(s) "
+                        f"in {guild.name}."
+                    )
+
+                if missing_channels:
+                    missing = ", ".join(missing_channels)
+                    print(f"⚠️ Missing news channels in {guild.name}: {missing}")
+
+            self._save_seen_news()
+
+        except Exception as error:
+            print(f"❌ Auto news loop error: {error}")
+
     async def _post_news_to_channels(self, ctx):
         if ctx.guild is None:
             await ctx.send("⚠️ Channel posting only works inside a Discord server.")
             return
 
-        report = self.news.get_channel_reports(limit_per_channel=3)
+        report = await asyncio.to_thread(
+            self.news.get_channel_reports,
+            limit_per_channel=3,
+        )
+        posted_count, missing_channels = await self._send_channel_report(
+            guild=ctx.guild,
+            report=report,
+            filter_seen=False,
+        )
+
+        message = f"✅ Posted news into **{posted_count}** channel(s)."
+
+        if missing_channels:
+            missing = ", ".join(f"#{name}" for name in missing_channels)
+            message += f"\n⚠️ Missing channels: {missing}"
+
+        await ctx.send(message)
+
+    async def _send_channel_report(self, guild, report, filter_seen):
         channels = report.get("channels", {})
         posted_count = 0
         missing_channels = []
@@ -103,7 +204,7 @@ class News(commands.Cog):
                 continue
 
             channel = discord.utils.get(
-                ctx.guild.text_channels,
+                guild.text_channels,
                 name=channel_name,
             )
 
@@ -111,9 +212,23 @@ class News(commands.Cog):
                 missing_channels.append(channel_name)
                 continue
 
+            items_to_post = []
+
+            for item in items:
+                item_id = self._article_id(item)
+
+                if filter_seen and item_id in self.seen_news:
+                    continue
+
+                items_to_post.append(item)
+                self.seen_news.add(item_id)
+
+            if not items_to_post:
+                continue
+
             embed = self._build_news_embed(
                 {
-                    "items": items,
+                    "items": items_to_post,
                     "category": channel_name,
                     "updated": report.get("updated", "Unknown"),
                 }
@@ -121,13 +236,7 @@ class News(commands.Cog):
             await channel.send(embed=embed)
             posted_count += 1
 
-        message = f"✅ Posted news into **{posted_count}** channel(s)."
-
-        if missing_channels:
-            missing = ", ".join(f"#{name}" for name in missing_channels)
-            message += f"\n⚠️ Missing channels: {missing}"
-
-        await ctx.send(message)
+        return posted_count, missing_channels
 
     def _build_news_embed(self, report):
         category = report.get("category", "all")
@@ -156,7 +265,7 @@ class News(commands.Cog):
                 )
 
         embed.set_footer(
-            text=f'Updated {report.get("updated", "Unknown")} • MarketOps v0.5.1'
+            text=f'Updated {report.get("updated", "Unknown")} • MarketOps v0.5.2'
         )
 
         return embed
@@ -193,7 +302,15 @@ class News(commands.Cog):
             description=self.news.category_help(),
             color=discord.Color.gold(),
         )
-        embed.set_footer(text="MarketOps v0.5.1")
+        embed.add_field(
+            name="Live Auto-Posting",
+            value=(
+                "MarketOps checks for new headlines automatically and routes "
+                "them into the matching channels. Use `!news live` to check status."
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="MarketOps v0.5.2")
         return embed
 
     def _build_channel_map_embed(self):
@@ -204,10 +321,57 @@ class News(commands.Cog):
         )
         embed.add_field(
             name="Manual channel post",
-            value="Type `!news post` to send headlines into the matching channels.",
+            value="Type `!news post` to send current headlines into the matching channels.",
             inline=False,
         )
-        embed.set_footer(text="MarketOps v0.5.1")
+        embed.add_field(
+            name="Automatic posting",
+            value=(
+                "MarketOps also auto-checks for new headlines while the bot is running. "
+                "It skips headlines it has already seen."
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="MarketOps v0.5.2")
+        return embed
+
+    def _build_live_status_embed(self):
+        status = "ON" if self.auto_post_enabled else "OFF"
+
+        embed = discord.Embed(
+            title="🟢 MarketOps Live News Monitor",
+            description="Automatic news routing status.",
+            color=discord.Color.green() if self.auto_post_enabled else discord.Color.red(),
+        )
+        embed.add_field(
+            name="Auto-posting",
+            value=f"**{status}**",
+            inline=True,
+        )
+        embed.add_field(
+            name="Poll Rate",
+            value=f"Every **{self.poll_minutes:g} minutes**",
+            inline=True,
+        )
+        embed.add_field(
+            name="Seen Headlines",
+            value=f"**{len(self.seen_news)}** tracked",
+            inline=True,
+        )
+        embed.add_field(
+            name="Channel Routing",
+            value=self.news.channel_map_text(),
+            inline=False,
+        )
+        embed.add_field(
+            name="Note",
+            value=(
+                "On first run, MarketOps seeds current headlines so it does not spam old news. "
+                "After that, new headlines are routed automatically."
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="MarketOps v0.5.2")
         return embed
 
     def _title_for_category(self, category):
@@ -225,9 +389,55 @@ class News(commands.Cog):
             "market": "📊 Broad Market News",
             "breaking-news": "🚨 Breaking News",
             "ai-news": "🤖 AI / Tech News",
+            "fed": "🏦 Fed / Rates News",
+            "geopolitics": "🛢 Oil / Geopolitics News",
         }
 
         return titles.get(category, f"📰 MarketOps News — {category}")
+
+    def _env_bool(self, name, default=False):
+        value = os.getenv(name)
+
+        if value is None:
+            return default
+
+        return value.strip().lower() in ("1", "true", "yes", "y", "on")
+
+    def _all_report_items(self, report):
+        items = []
+
+        for channel_items in report.get("channels", {}).values():
+            items.extend(channel_items)
+
+        return items
+
+    def _mark_items_seen(self, items):
+        for item in items:
+            self.seen_news.add(self._article_id(item))
+
+    def _article_id(self, item):
+        base = item.get("link") or f'{item.get("source", "")}::{item.get("title", "")}'
+        return hashlib.sha256(base.encode("utf-8")).hexdigest()
+
+    def _load_seen_news(self):
+        if not self.seen_file.exists():
+            return set()
+
+        try:
+            with self.seen_file.open("r", encoding="utf-8") as file:
+                data = json.load(file)
+        except Exception:
+            return set()
+
+        return set(data if isinstance(data, list) else [])
+
+    def _save_seen_news(self):
+        self.seen_file.parent.mkdir(parents=True, exist_ok=True)
+
+        trimmed = list(self.seen_news)[-500:]
+
+        with self.seen_file.open("w", encoding="utf-8") as file:
+            json.dump(trimmed, file, indent=2)
 
 
 async def setup(bot):
