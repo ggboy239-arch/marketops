@@ -80,7 +80,7 @@ class RSSProvider:
         self.lookback = os.getenv("NEWS_LOOKBACK", "1h")
         self.feeds = feeds or self._load_feeds()
         self.headers = {
-            "User-Agent": "MarketOps/0.5.6 (near-live trusted market news monitor)",
+            "User-Agent": "MarketOps/0.6.2 (near-live trusted market news monitor)",
         }
 
     def get_latest_news(self, limit=10):
@@ -186,6 +186,7 @@ class RSSProvider:
 
         return {
             "source": self._source_name(feed, item_source),
+            "feed_name": feed["name"],
             "title": self._clean_google_news_title(self._clean_text(raw_title)),
             "link": link or "",
             "summary": self._clean_text(description or ""),
@@ -193,6 +194,7 @@ class RSSProvider:
             "published_dt": self._parse_date(published),
             "category_hint": feed.get("category_hint"),
             "trusted": True,
+            "provider": "RSS",
         }
 
     def _parse_atom_item(self, feed, item):
@@ -212,7 +214,8 @@ class RSSProvider:
             return None
 
         return {
-            "source": feed["name"],
+            "source": self._source_name(feed, ""),
+            "feed_name": feed["name"],
             "title": self._clean_google_news_title(self._clean_text(raw_title)),
             "link": link,
             "summary": self._clean_text(summary or ""),
@@ -220,6 +223,7 @@ class RSSProvider:
             "published_dt": self._parse_date(updated),
             "category_hint": feed.get("category_hint"),
             "trusted": True,
+            "provider": "RSS",
         }
 
     def _is_trusted_item(self, feed, title, link, item_source):
@@ -236,8 +240,11 @@ class RSSProvider:
         return trusted_source.lower() in text
 
     def _source_name(self, feed, item_source):
-        if item_source and "reuters" in item_source.lower():
-            return feed["name"]
+        if feed.get("trusted_source") == "Reuters":
+            return "Reuters"
+
+        if item_source:
+            return item_source
 
         return feed["name"]
 
