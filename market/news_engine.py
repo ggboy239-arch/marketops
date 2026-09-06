@@ -148,7 +148,8 @@ class NewsEngine:
 
     def __init__(self):
         self.provider = RSSProvider()
-        self.max_age_hours = float(os.getenv("NEWS_MAX_AGE_HOURS", "6"))
+        # Default is 30 minutes. This is the freshness filter, not the poll delay.
+        self.max_age_hours = float(os.getenv("NEWS_MAX_AGE_HOURS", "0.5"))
 
     def get_top_news(self, limit=5, category="all"):
         raw_items = self.provider.get_latest_news(limit=50)
@@ -209,6 +210,14 @@ class NewsEngine:
         return self.provider.source_policy()
 
     def freshness_policy(self):
+        max_minutes = round(self.max_age_hours * 60)
+
+        if max_minutes < 60:
+            return (
+                f"MarketOps shows trusted headlines published within the last "
+                f"{max_minutes} minutes."
+            )
+
         return (
             f"MarketOps shows trusted headlines published within the last "
             f"{self.max_age_hours:g} hour(s)."
