@@ -10,31 +10,53 @@ from providers.rss_provider import RSSProvider
 
 
 class NewsEngine:
-    """Turns headlines into MarketOps news cards.
+    """Turns headlines into MarketOps news cards."""
 
-    Provider job: fetch headlines.
-    Engine job: reject unrelated headlines, classify the remaining headlines,
-    explain why they matter, and route them to the correct Discord channel.
-    """
-
-    AI_TECH_KEYWORDS = [
+    AI_PURE_KEYWORDS = [
         "ai",
         "artificial intelligence",
-        "nvidia",
-        "nvda",
-        "amd",
+        "openai",
+        "chatgpt",
+        "machine learning",
         "semiconductor",
         "semiconductors",
         "chip",
         "chips",
+        "gpu",
         "data center",
         "data centers",
+        "groq",
+    ]
+
+    AI_COMPANIES = [
+        "nvidia",
+        "nvda",
+        "amd",
         "microsoft",
+        "msft",
         "amazon",
+        "amzn",
         "apple",
-        "openai",
+        "aapl",
         "google",
+        "googl",
+        "alphabet",
         "meta",
+    ]
+
+    AI_CONTEXT_KEYWORDS = [
+        "ai",
+        "artificial intelligence",
+        "chip",
+        "chips",
+        "semiconductor",
+        "gpu",
+        "data center",
+        "data centers",
+        "cloud",
+        "racks",
+        "openai",
+        "groq",
     ]
 
     FED_RATES_KEYWORDS = [
@@ -161,22 +183,25 @@ class NewsEngine:
         "public health",
         "fema",
         "national guard",
+        "boeing",
+        "runway",
+        "aircraft",
+        "airport",
+        "amazon prime air",
     ]
 
-    REDDIT_KEYWORDS = [
-        "stocks",
-        "market",
-        "investing",
-        "trading",
-        "economy",
-        "geopolitics",
-        "bitcoin",
-        "crypto",
-        "earnings",
-        "nvidia",
-        "tesla",
-        "spy",
-        "qqq",
+    COMPANY_GENERAL_KEYWORDS = [
+        "amazon",
+        "amzn",
+        "boeing",
+        "ba",
+        "apple",
+        "aapl",
+        "microsoft",
+        "msft",
+        "google",
+        "alphabet",
+        "meta",
     ]
 
     IRRELEVANT_KEYWORDS = [
@@ -199,6 +224,9 @@ class NewsEngine:
         "olympic",
         "tournament",
         "match",
+        "us open",
+        "honey deuce",
+        "court after 20 years",
         "movie",
         "film",
         "celebrity",
@@ -252,6 +280,7 @@ class NewsEngine:
         "nationwide": "🗞 General News",
         "world": "🗞 General News",
         "reddit": "🧵 Reddit Hot",
+        "reddits": "🧵 Reddit Hot",
         "reddit-hot": "🧵 Reddit Hot",
         "social": "🧵 Reddit Hot",
     }
@@ -325,7 +354,6 @@ class NewsEngine:
         classified_items.sort(key=lambda item: item["importance_score"], reverse=True)
 
         reports = {channel: [] for channel in self.CHANNEL_ORDER}
-
         for item in classified_items:
             channel = item["channel"]
             if len(reports[channel]) < limit_per_channel:
@@ -341,36 +369,25 @@ class NewsEngine:
         }
 
     def channel_map_text(self):
-        lines = []
-        for tag, channel in self.CHANNEL_MAP.items():
-            lines.append(f"• {tag} → `#{channel}`")
-        return "\n".join(lines)
+        return "\n".join(f"• {tag} → `#{channel}`" for tag, channel in self.CHANNEL_MAP.items())
 
     def source_policy(self):
         parts = []
-
         if self.marketaux_provider.enabled:
-            parts.append(
-                "Marketaux mode is ON. MarketOps checks Marketaux first for free market-news API coverage."
-            )
+            parts.append("Marketaux mode is ON. MarketOps checks Marketaux first for free market-news API coverage.")
             parts.append(self.marketaux_provider.source_policy())
         else:
             parts.append("Marketaux is OFF because MARKETAUX_API_KEY is missing.")
-
         if self.fallback_to_rss:
             parts.append("Reuters-focused RSS fallback is ON.")
-
         if self.include_reddit:
             parts.append("Reddit RSS monitor is ON and routes chatter to #reddit-hot only.")
-
         return " ".join(parts)
 
     def freshness_policy(self):
         max_minutes = round(self.max_age_hours * 60)
-
         if max_minutes < 60:
             return f"MarketOps shows headlines published within the last {max_minutes} minutes."
-
         return f"MarketOps shows headlines published within the last {self.max_age_hours:g} hour(s)."
 
     def category_help(self):
@@ -395,7 +412,7 @@ class NewsEngine:
         used = []
         normalized_category = (category or "all").strip().lower()
 
-        if normalized_category in ("reddit", "reddit-hot", "social"):
+        if normalized_category in ("reddit", "reddits", "reddit-hot", "social"):
             reddit_items = self.reddit_provider.get_latest_news(limit=limit)
             self.last_provider_used = "Reddit RSS"
             return reddit_items
@@ -432,12 +449,10 @@ class NewsEngine:
 
     def _classify_items(self, raw_items):
         classified = []
-
         for item in raw_items:
             result = self._classify(item)
             if result is not None:
                 classified.append(result)
-
         return classified
 
     def _classify(self, item):
@@ -453,10 +468,8 @@ class NewsEngine:
                 return None
 
             tags = self._detect_tags(title_text)
-
             if not tags:
                 return None
-
             primary_tag = self._primary_tag(tags)
 
         channel = self.CHANNEL_MAP[primary_tag]
@@ -473,8 +486,6 @@ class NewsEngine:
             score += 1
 
         published_dt = item.get("published_dt")
-        importance = self._importance(score)
-
         return {
             "source": source or provider or "Unknown",
             "title": title,
@@ -488,7 +499,7 @@ class NewsEngine:
             "tags": tags,
             "primary_tag": primary_tag,
             "channel": channel,
-            "importance": importance,
+            "importance": self._importance(score),
             "importance_score": score,
             "why_it_matters": self._why_it_matters(tags),
             "watch": self._watch(tags),
@@ -505,7 +516,7 @@ class NewsEngine:
         if self._matches_any(title_text, self.GEO_STRONG_KEYWORDS) or self._china_market_context(title_text):
             tags.append("🛢 Oil / Geopolitics")
 
-        if self._matches_any(title_text, self.AI_TECH_KEYWORDS):
+        if self._is_ai_tech(title_text):
             tags.append("🤖 AI / Tech")
 
         if self._matches_any(title_text, self.CRYPTO_KEYWORDS):
@@ -517,32 +528,39 @@ class NewsEngine:
         if not tags and self._matches_any(title_text, self.GENERAL_NEWS_KEYWORDS):
             tags.append("🗞 General News")
 
+        if not tags and self._matches_any(title_text, self.COMPANY_GENERAL_KEYWORDS):
+            tags.append("🗞 General News")
+
         return self._dedupe_tags(tags)
+
+    def _is_ai_tech(self, title_text):
+        if self._matches_any(title_text, self.AI_PURE_KEYWORDS):
+            return True
+
+        has_ai_company = self._matches_any(title_text, self.AI_COMPANIES)
+        has_ai_context = self._matches_any(title_text, self.AI_CONTEXT_KEYWORDS)
+
+        return has_ai_company and has_ai_context
 
     def _should_ignore(self, title_text):
         if not self._matches_any(title_text, self.IRRELEVANT_KEYWORDS):
             return False
-
         return not self._matches_any(title_text, self.OVERRIDE_KEEP_KEYWORDS)
 
     def _china_market_context(self, title_text):
         if not self._keyword_match(title_text, "china") and not self._keyword_match(title_text, "beijing"):
             return False
-
         return self._matches_any(title_text, self.CHINA_CONTEXT_KEYWORDS)
 
     def _is_fresh(self, item):
         age_minutes = item.get("age_minutes")
-
         if age_minutes is None:
             return False
-
         return age_minutes <= self.max_age_hours * 60
 
     def _resolve_category(self, category):
         if category is None:
             return None
-
         normalized = category.strip().lower()
         return self.CATEGORY_ALIASES.get(normalized)
 
@@ -550,29 +568,24 @@ class NewsEngine:
         for tag in self.TAG_PRIORITY:
             if tag in tags:
                 return tag
-
         return tags[0]
 
     def _dedupe_tags(self, tags):
         deduped = []
-
         for tag in tags:
             if tag not in deduped:
                 deduped.append(tag)
-
         return deduped
 
     def _dedupe_raw_items(self, items):
         seen = set()
         deduped = []
-
         for item in items:
             key = item.get("link") or item.get("title", "").lower()
             if key in seen:
                 continue
             seen.add(key)
             deduped.append(item)
-
         return deduped
 
     def _matches_any(self, text, keywords):
@@ -580,10 +593,8 @@ class NewsEngine:
 
     def _keyword_match(self, text, keyword):
         normalized_keyword = self._normalize_text(keyword)
-
         if not normalized_keyword:
             return False
-
         pattern = rf"(?<![a-z0-9]){re.escape(normalized_keyword)}(?![a-z0-9])"
         return re.search(pattern, text) is not None
 
@@ -620,7 +631,6 @@ class NewsEngine:
 
     def _watch(self, tags):
         watch = []
-
         if "🧵 Reddit Hot" in tags:
             watch.extend(["Verify source", "Price/volume reaction", "Do not trade rumor alone"])
         if "🏦 Fed / Rates" in tags:
@@ -640,13 +650,11 @@ class NewsEngine:
         for item in watch:
             if item not in deduped:
                 deduped.append(item)
-
         return ", ".join(deduped[:5]) or "Market reaction"
 
     def _published_label(self, published_dt):
         if published_dt is None:
             return "Unknown"
-
         try:
             local_time = published_dt.astimezone(ZoneInfo("America/Los_Angeles"))
             return local_time.strftime("%I:%M %p PT").lstrip("0")
@@ -655,14 +663,12 @@ class NewsEngine:
 
     def _age_label(self, published_dt):
         minutes = self._age_minutes(published_dt)
-
         if minutes is None:
             return "Unknown"
         if minutes < 1:
             return "just now"
         if minutes < 60:
             return f"{minutes}m ago"
-
         hours = minutes // 60
         remaining_minutes = minutes % 60
         if remaining_minutes == 0:
@@ -672,26 +678,20 @@ class NewsEngine:
     def _age_minutes(self, published_dt):
         if published_dt is None:
             return None
-
         try:
             now = datetime.now(ZoneInfo("UTC"))
-
             if published_dt.tzinfo is None:
                 published_dt = published_dt.replace(tzinfo=ZoneInfo("UTC"))
-
             published_utc = published_dt.astimezone(ZoneInfo("UTC"))
             seconds = (now - published_utc).total_seconds()
-
             return max(0, int(seconds // 60))
         except Exception:
             return None
 
     def _env_bool(self, name, default=False):
         value = os.getenv(name)
-
         if value is None:
             return default
-
         return value.strip().lower() in ("1", "true", "yes", "y", "on")
 
     def _timestamp(self):
