@@ -15,9 +15,9 @@ load_dotenv()
 class RSSProvider:
     """Fetches trusted public RSS feeds for MarketOps news.
 
-    Provider job: go outside the app, get raw news items, verify the source,
-    and return clean data. It does not decide market impact. That job belongs
-    to NewsEngine.
+    This provider is Reuters-focused by default. It fetches RSS/search results,
+    verifies that the item is actually Reuters when Reuters-only mode is on,
+    and returns clean headline data.
     """
 
     REUTERS_ENV_FEEDS = [
@@ -76,10 +76,11 @@ class RSSProvider:
             "NEWS_INCLUDE_EXTRA_SOURCES",
             default=False,
         )
-        self.lookback = os.getenv("NEWS_LOOKBACK", "6h")
+        # This is NOT the delay. It is only the search window used to find fresh items.
+        self.lookback = os.getenv("NEWS_LOOKBACK", "1h")
         self.feeds = feeds or self._load_feeds()
         self.headers = {
-            "User-Agent": "MarketOps/0.5.5 (trusted near-live market news monitor)",
+            "User-Agent": "MarketOps/0.5.6 (near-live trusted market news monitor)",
         }
 
     def get_latest_news(self, limit=10):
@@ -94,17 +95,10 @@ class RSSProvider:
         return items[:limit]
 
     def source_policy(self):
-        if self.reuters_only:
-            return (
-                "Reuters-only mode is ON. MarketOps keeps only headlines that "
-                "can be verified as Reuters results from the RSS item source/title. "
-                f"Current search lookback: {self.lookback}."
-            )
-
+        mode = "ON" if self.reuters_only else "OFF"
         return (
-            "Reuters-only mode is OFF. MarketOps also allows approved extra "
-            "sources like Yahoo Finance and CNBC if NEWS_INCLUDE_EXTRA_SOURCES=true. "
-            f"Current search lookback: {self.lookback}."
+            f"Reuters-only mode is {mode}. MarketOps keeps verified Reuters headlines by default. "
+            f"Search lookback is {self.lookback}; this is a search window, not a delay."
         )
 
     def _load_feeds(self):
@@ -112,7 +106,6 @@ class RSSProvider:
 
         for name, env_name, category_hint in self.REUTERS_ENV_FEEDS:
             url = os.getenv(env_name)
-
             if url:
                 feeds.append(
                     {
@@ -156,10 +149,7 @@ class RSSProvider:
             )
             response.raise_for_status()
 
-            return self._parse_rss(
-                feed=feed,
-                text=response.text,
-            )
+            return self._parse_rss(feed=feed, text=response.text)
 
         except Exception as error:
             print(f"❌ RSS error from {feed['name']}: {error}")
@@ -169,19 +159,12 @@ class RSSProvider:
         root = ET.fromstring(text)
         items = []
 
-        rss_items = root.findall(".//item")
+        for item in root.findall(".//item"):
+            parsed = self._parse_rss_item(feed, item)
+            if parsed is not None:
+                items.append(parsed)
 
-        if rss_items:
-            for item in rss_items:
-                parsed = self._parse_rss_item(feed, item)
-                if parsed is not None:
-                    items.append(parsed)
-
-            return items
-
-        atom_items = root.findall(".//{http://www.w3.org/2005/Atom}entry")
-
-        for item in atom_items:
+        for item in root.findall(".//{http://www.w3.org/2005/Atom}entry"):
             parsed = self._parse_atom_item(feed, item)
             if parsed is not None:
                 items.append(parsed)
