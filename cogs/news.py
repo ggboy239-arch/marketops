@@ -12,7 +12,7 @@ from discord.ext import commands, tasks
 from market.news_engine import NewsEngine
 
 
-VERSION = "MarketOps v0.7"
+VERSION = "MarketOps v0.7.1"
 
 
 class News(commands.Cog):
@@ -52,6 +52,7 @@ class News(commands.Cog):
             app_commands.Choice(name="Fed / rates", value="fed"),
             app_commands.Choice(name="oil / geopolitics", value="geo"),
             app_commands.Choice(name="crypto", value="crypto"),
+            app_commands.Choice(name="reddit hot", value="reddit"),
         ]
     )
     async def news_slash(
@@ -92,7 +93,7 @@ class News(commands.Cog):
                 await ctx.send(embed=self._build_channel_map_embed())
                 return
 
-            if category in ("sources", "source", "reuters", "marketaux", "finlight"):
+            if category in ("sources", "source", "reuters", "marketaux", "finlight", "reddit"):
                 await ctx.send(embed=self._build_sources_embed())
                 return
 
@@ -198,7 +199,7 @@ class News(commands.Cog):
             filter_seen=False,
         )
 
-        message = f"✅ Posted fresh trusted news into **{posted_count}** channel(s)."
+        message = f"✅ Posted fresh routed items into **{posted_count}** channel(s)."
         count_text = self._format_counts(report.get("counts", {}))
 
         if count_text:
@@ -259,7 +260,7 @@ class News(commands.Cog):
 
         embed = discord.Embed(
             title=self._title_for_category(category),
-            description="Fresh trusted headlines routed by topic.",
+            description="Fresh trusted headlines and Reddit chatter routed by topic.",
             color=discord.Color.blue(),
         )
 
@@ -267,9 +268,9 @@ class News(commands.Cog):
 
         if not items:
             embed.add_field(
-                name="No fresh trusted headlines found",
+                name="No fresh items found",
                 value=(
-                    "MarketOps did not find a matching trusted headline in the current freshness window. "
+                    "MarketOps did not find a matching item in the current freshness window. "
                     "It will not invent news just to fill the channel."
                 ),
                 inline=False,
@@ -300,9 +301,9 @@ class News(commands.Cog):
         published_label = item.get("published_label", "Unknown")
         age_label = item.get("age_label", "Unknown")
         provider = item.get("provider", "Unknown")
-        trusted_badge = "✅ Trusted" if item.get("trusted") else "⚠️ Unverified"
+        trusted_badge = "✅ Trusted" if item.get("trusted") else "⚠️ Chatter / verify first"
 
-        read_line = f"Open: [Read full article]({link})\n" if link else ""
+        read_line = f"Open: [Read full item]({link})\n" if link else ""
 
         value = (
             f"Headline: **{title}**\n"
@@ -329,8 +330,8 @@ class News(commands.Cog):
         embed.add_field(
             name="Live Auto-Posting",
             value=(
-                "MarketOps checks frequently for fresh trusted headlines and routes them into the matching channels. "
-                "Use `!news live` to check status."
+                "MarketOps checks frequently for fresh trusted headlines and Reddit chatter, "
+                "then routes them into the matching channels. Use `!news live` to check status."
             ),
             inline=False,
         )
@@ -345,14 +346,15 @@ class News(commands.Cog):
         )
         embed.add_field(
             name="Manual channel post",
-            value="Type `!news post` to send current fresh trusted headlines into the matching channels.",
+            value="Type `!news post` to send current fresh items into the matching channels.",
             inline=False,
         )
         embed.add_field(
             name="Rule",
             value=(
                 "`#breaking-news` is for market-moving headlines. "
-                "`#general-news` is for important national/world headlines that are not directly market-specific."
+                "`#general-news` is for important national/world headlines. "
+                "`#reddit-hot` is for Reddit chatter only, not confirmed news."
             ),
             inline=False,
         )
@@ -369,8 +371,8 @@ class News(commands.Cog):
         embed.add_field(
             name="Free Provider Setup",
             value=(
-                "Add `MARKETAUX_API_KEY=your_key_here` to `.env` to use Marketaux first. "
-                "Keep `NEWS_FALLBACK_RSS=true` so Reuters RSS stays as backup."
+                "Marketaux runs first when `MARKETAUX_API_KEY` is in `.env`. "
+                "Reuters RSS is the backup. Reddit RSS routes to `#reddit-hot` only."
             ),
             inline=False,
         )
@@ -381,7 +383,8 @@ class News(commands.Cog):
                 "`NEWS_MAX_AGE_HOURS=1`\n"
                 "`NEWS_LOOKBACK=2h`\n"
                 "`NEWS_POLL_MINUTES=15`\n"
-                "`NEWS_FALLBACK_RSS=true`"
+                "`NEWS_FALLBACK_RSS=true`\n"
+                "`REDDIT_ENABLED=true`"
             ),
             inline=False,
         )
@@ -397,12 +400,12 @@ class News(commands.Cog):
 
         embed = discord.Embed(
             title="🧪 MarketOps News Debug",
-            description="Shows how many fresh trusted headlines MarketOps found for each route.",
+            description="Shows how many fresh items MarketOps found for each route.",
             color=discord.Color.gold(),
         )
         embed.add_field(
             name="Counts by Channel",
-            value=self._format_counts(counts) or "No fresh trusted headlines found.",
+            value=self._format_counts(counts) or "No fresh items found.",
             inline=False,
         )
         embed.add_field(name="Last Feed Check", value=self._last_check, inline=True)
@@ -425,12 +428,12 @@ class News(commands.Cog):
 
         embed = discord.Embed(
             title="🟢 MarketOps Live News Monitor",
-            description="Automatic fresh trusted news routing status.",
+            description="Automatic fresh routing status.",
             color=discord.Color.green() if self.auto_post_enabled else discord.Color.red(),
         )
         embed.add_field(name="Auto-posting", value=f"**{status}**", inline=True)
         embed.add_field(name="Poll Rate", value=f"Every **{self.poll_minutes:g} minute(s)**", inline=True)
-        embed.add_field(name="Seen Headlines", value=f"**{len(self.seen_news)}** tracked", inline=True)
+        embed.add_field(name="Seen Items", value=f"**{len(self.seen_news)}** tracked", inline=True)
         embed.add_field(name="Last Feed Check", value=self._last_check, inline=True)
         embed.add_field(name="Provider Used", value=self._last_provider_used, inline=True)
         embed.add_field(
@@ -458,16 +461,17 @@ class News(commands.Cog):
             "fed",
             "geopolitics",
             "crypto",
+            "reddit-hot",
         ]
         lines = []
 
         for channel in ordered:
             if channel in counts:
-                lines.append(f"• `#{channel}` — **{counts[channel]}** headline(s)")
+                lines.append(f"• `#{channel}` — **{counts[channel]}** item(s)")
 
         for channel, count in counts.items():
             if channel not in ordered:
-                lines.append(f"• `#{channel}` — **{count}** headline(s)")
+                lines.append(f"• `#{channel}` — **{count}** item(s)")
 
         return "\n".join(lines)
 
@@ -491,6 +495,9 @@ class News(commands.Cog):
             "oil": "🛢 Oil / Geopolitics News",
             "crypto": "₿ Crypto News",
             "bitcoin": "₿ Crypto News",
+            "reddit": "🧵 Reddit Hot",
+            "reddit-hot": "🧵 Reddit Hot",
+            "social": "🧵 Reddit Hot",
         }
 
         return titles.get(category, f"📰 MarketOps News — {category}")
