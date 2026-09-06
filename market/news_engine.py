@@ -5,13 +5,14 @@ from zoneinfo import ZoneInfo
 
 from providers.finlight_provider import FinlightProvider
 from providers.marketaux_provider import MarketauxProvider
+from providers.reddit_provider import RedditProvider
 from providers.rss_provider import RSSProvider
 
 
 class NewsEngine:
-    """Turns trusted headlines into MarketOps news cards.
+    """Turns headlines into MarketOps news cards.
 
-    Provider job: fetch and verify headlines.
+    Provider job: fetch headlines.
     Engine job: reject unrelated headlines, classify the remaining headlines,
     explain why they matter, and route them to the correct Discord channel.
     """
@@ -162,14 +163,21 @@ class NewsEngine:
         "national guard",
     ]
 
-    KEYWORDS = {
-        "🤖 AI / Tech": AI_TECH_KEYWORDS,
-        "🏦 Fed / Rates": FED_RATES_KEYWORDS,
-        "🛢 Oil / Geopolitics": GEO_STRONG_KEYWORDS,
-        "₿ Crypto": CRYPTO_KEYWORDS,
-        "📊 Broad Market": BROAD_MARKET_KEYWORDS,
-        "🗞 General News": GENERAL_NEWS_KEYWORDS,
-    }
+    REDDIT_KEYWORDS = [
+        "stocks",
+        "market",
+        "investing",
+        "trading",
+        "economy",
+        "geopolitics",
+        "bitcoin",
+        "crypto",
+        "earnings",
+        "nvidia",
+        "tesla",
+        "spy",
+        "qqq",
+    ]
 
     IRRELEVANT_KEYWORDS = [
         "world cup",
@@ -243,6 +251,9 @@ class NewsEngine:
         "national": "🗞 General News",
         "nationwide": "🗞 General News",
         "world": "🗞 General News",
+        "reddit": "🧵 Reddit Hot",
+        "reddit-hot": "🧵 Reddit Hot",
+        "social": "🧵 Reddit Hot",
     }
 
     CHANNEL_MAP = {
@@ -252,6 +263,7 @@ class NewsEngine:
         "₿ Crypto": "crypto",
         "📊 Broad Market": "breaking-news",
         "🗞 General News": "general-news",
+        "🧵 Reddit Hot": "reddit-hot",
     }
 
     CHANNEL_ORDER = [
@@ -261,6 +273,7 @@ class NewsEngine:
         "fed",
         "geopolitics",
         "crypto",
+        "reddit-hot",
     ]
 
     TAG_PRIORITY = [
@@ -270,19 +283,22 @@ class NewsEngine:
         "₿ Crypto",
         "📊 Broad Market",
         "🗞 General News",
+        "🧵 Reddit Hot",
     ]
 
     def __init__(self):
         self.marketaux_provider = MarketauxProvider()
         self.finlight_provider = FinlightProvider()
         self.rss_provider = RSSProvider()
+        self.reddit_provider = RedditProvider()
         self.fallback_to_rss = self._env_bool("NEWS_FALLBACK_RSS", default=True)
         self.use_finlight = self._env_bool("NEWS_USE_FINLIGHT", default=False)
+        self.include_reddit = self._env_bool("REDDIT_ENABLED", default=True)
         self.max_age_hours = float(os.getenv("NEWS_MAX_AGE_HOURS", "0.25"))
         self.last_provider_used = "Not checked yet"
 
     def get_top_news(self, limit=5, category="all"):
-        raw_items = self._get_raw_items(limit=50)
+        raw_items = self._get_raw_items(limit=50, category=category)
         classified_items = self._classify_items(raw_items)
         classified_items = [item for item in classified_items if self._is_fresh(item)]
 
@@ -303,7 +319,7 @@ class NewsEngine:
         }
 
     def get_channel_reports(self, limit_per_channel=3):
-        raw_items = self._get_raw_items(limit=75)
+        raw_items = self._get_raw_items(limit=75, category="all")
         classified_items = self._classify_items(raw_items)
         classified_items = [item for item in classified_items if self._is_fresh(item)]
         classified_items.sort(key=lambda item: item["importance_score"], reverse=True)
@@ -331,119 +347,128 @@ class NewsEngine:
         return "\n".join(lines)
 
     def source_policy(self):
+        parts = []
+
         if self.marketaux_provider.enabled:
-            return (
-                "Marketaux mode is ON. MarketOps checks Marketaux first for free market-news API coverage. "
-                "Reuters-focused RSS remains available as the backup when NEWS_FALLBACK_RSS=true."
+            parts.append(
+                "Marketaux mode is ON. MarketOps checks Marketaux first for free market-news API coverage."
             )
+            parts.append(self.marketaux_provider.source_policy())
+        else:
+            parts.append("Marketaux is OFF because MARKETAUX_API_KEY is missing.")
 
-        if self.use_finlight and self.finlight_provider.enabled:
-            return (
-                "Finlight mode is ON. MarketOps checks Finlight REST for fresher trusted financial news. "
-                "If Finlight returns nothing and NEWS_FALLBACK_RSS=true, it falls back to Reuters-focused RSS."
-            )
+        if self.fallback_to_rss:
+            parts.append("Reuters-focused RSS fallback is ON.")
 
-        return (
-            "Marketaux is OFF because MARKETAUX_API_KEY is missing. "
-            "MarketOps is using Reuters-focused RSS fallback."
-        )
+        if self.include_reddit:
+            parts.append("Reddit RSS monitor is ON and routes chatter to #reddit-hot only.")
+
+        return " ".join(parts)
 
     def freshness_policy(self):
         max_minutes = round(self.max_age_hours * 60)
+
         if max_minutes < 60:
-            return f"MarketOps shows trusted headlines published within the last {max_minutes} minutes."
-        return f"MarketOps shows trusted headlines published within the last {self.max_age_hours:g} hour(s)."
+            return f"MarketOps shows headlines published within the last {max_minutes} minutes."
+
+        return f"MarketOps shows headlines published within the last {self.max_age_hours:g} hour(s)."
 
     def category_help(self):
         return (
             "Use one of these:\n"
-            "• `!news` — all trusted MarketOps news\n"
+            "• `!news` — all MarketOps news\n"
             "• `!news market` — market-moving / broad market\n"
             "• `!news general` — important national/world news, not directly market-related\n"
             "• `!news ai` — AI / tech\n"
             "• `!news fed` — Fed / rates / inflation\n"
             "• `!news geo` — oil / geopolitics\n"
             "• `!news crypto` — bitcoin / crypto\n"
+            "• `!news reddit` — Reddit market chatter only\n"
             "• `!news channels` — show channel routing\n"
-            "• `!news sources` — show trusted-source policy\n"
+            "• `!news sources` — show provider policy\n"
             "• `!news debug` — show how many fresh headlines each channel found\n"
-            "• `!news post` — post fresh headlines into the matching channels"
+            "• `!news post` — post fresh headlines into matching channels"
         )
 
-    def _get_raw_items(self, limit):
+    def _get_raw_items(self, limit, category="all"):
         items = []
-        providers_used = []
+        used = []
+        normalized_category = (category or "all").strip().lower()
+
+        if normalized_category in ("reddit", "reddit-hot", "social"):
+            reddit_items = self.reddit_provider.get_latest_news(limit=limit)
+            self.last_provider_used = "Reddit RSS"
+            return reddit_items
 
         if self.marketaux_provider.enabled:
             marketaux_items = self.marketaux_provider.get_latest_news(limit=limit)
             if marketaux_items:
                 items.extend(marketaux_items)
-                providers_used.append("Marketaux")
+                used.append("Marketaux")
 
         if self.use_finlight and self.finlight_provider.enabled:
             finlight_items = self.finlight_provider.get_latest_news(limit=limit)
             if finlight_items:
                 items.extend(finlight_items)
-                providers_used.append("Finlight REST")
+                used.append("Finlight REST")
 
         if self.fallback_to_rss:
             rss_items = self.rss_provider.get_latest_news(limit=limit)
             if rss_items:
                 items.extend(rss_items)
-                providers_used.append("Reuters RSS fallback")
+                used.append("Reuters RSS")
 
-        if not items and not providers_used:
-            providers_used.append("No provider returned articles")
+        if self.include_reddit:
+            reddit_items = self.reddit_provider.get_latest_news(limit=limit)
+            if reddit_items:
+                items.extend(reddit_items)
+                used.append("Reddit RSS")
 
-        self.last_provider_used = " + ".join(providers_used)
-        return self._deduplicate_items(items)[:limit]
+        if not used:
+            used.append("No provider returned raw items")
 
-    def _deduplicate_items(self, items):
-        seen = set()
-        unique = []
-
-        for item in items:
-            title = self._normalize_text(item.get("title", ""))
-            link = item.get("link", "")
-            key = link or title
-
-            if key in seen:
-                continue
-
-            seen.add(key)
-            unique.append(item)
-
-        return unique
+        self.last_provider_used = " + ".join(used)
+        return self._dedupe_raw_items(items)[:limit]
 
     def _classify_items(self, raw_items):
         classified = []
+
         for item in raw_items:
             result = self._classify(item)
             if result is not None:
                 classified.append(result)
+
         return classified
 
     def _classify(self, item):
         title = item.get("title", "Untitled")
         title_text = self._normalize_text(title)
-
-        if self._should_ignore(title_text):
-            return None
-
-        tags = self._detect_tags(title_text)
-
-        if not tags:
-            return None
-
-        primary_tag = self._primary_tag(tags)
-        channel = self.CHANNEL_MAP[primary_tag]
-
-        source = item.get("source", "")
         provider = item.get("provider", "RSS")
+
+        if provider == "Reddit RSS":
+            tags = ["🧵 Reddit Hot"]
+            primary_tag = "🧵 Reddit Hot"
+        else:
+            if self._should_ignore(title_text):
+                return None
+
+            tags = self._detect_tags(title_text)
+
+            if not tags:
+                return None
+
+            primary_tag = self._primary_tag(tags)
+
+        channel = self.CHANNEL_MAP[primary_tag]
+        source = item.get("source", "")
         score = len(tags) + 1
 
-        if provider in ("Marketaux", "Finlight"):
+        if provider == "Marketaux":
             score += 1
+        if provider == "Finlight":
+            score += 1
+        if provider == "Reddit RSS":
+            score = 1
         if "reuters" in source.lower():
             score += 1
 
@@ -497,22 +522,27 @@ class NewsEngine:
     def _should_ignore(self, title_text):
         if not self._matches_any(title_text, self.IRRELEVANT_KEYWORDS):
             return False
+
         return not self._matches_any(title_text, self.OVERRIDE_KEEP_KEYWORDS)
 
     def _china_market_context(self, title_text):
         if not self._keyword_match(title_text, "china") and not self._keyword_match(title_text, "beijing"):
             return False
+
         return self._matches_any(title_text, self.CHINA_CONTEXT_KEYWORDS)
 
     def _is_fresh(self, item):
         age_minutes = item.get("age_minutes")
+
         if age_minutes is None:
             return False
+
         return age_minutes <= self.max_age_hours * 60
 
     def _resolve_category(self, category):
         if category is None:
             return None
+
         normalized = category.strip().lower()
         return self.CATEGORY_ALIASES.get(normalized)
 
@@ -520,13 +550,29 @@ class NewsEngine:
         for tag in self.TAG_PRIORITY:
             if tag in tags:
                 return tag
+
         return tags[0]
 
     def _dedupe_tags(self, tags):
         deduped = []
+
         for tag in tags:
             if tag not in deduped:
                 deduped.append(tag)
+
+        return deduped
+
+    def _dedupe_raw_items(self, items):
+        seen = set()
+        deduped = []
+
+        for item in items:
+            key = item.get("link") or item.get("title", "").lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+
         return deduped
 
     def _matches_any(self, text, keywords):
@@ -534,8 +580,10 @@ class NewsEngine:
 
     def _keyword_match(self, text, keyword):
         normalized_keyword = self._normalize_text(keyword)
+
         if not normalized_keyword:
             return False
+
         pattern = rf"(?<![a-z0-9]){re.escape(normalized_keyword)}(?![a-z0-9])"
         return re.search(pattern, text) is not None
 
@@ -554,6 +602,8 @@ class NewsEngine:
         return "★★☆☆☆"
 
     def _why_it_matters(self, tags):
+        if "🧵 Reddit Hot" in tags:
+            return "Reddit is chatter, not confirmed news. Use it as an early watchlist idea only."
         if "🏦 Fed / Rates" in tags:
             return "Rates and inflation can move the whole market, especially tech and growth stocks."
         if "🛢 Oil / Geopolitics" in tags:
@@ -565,11 +615,14 @@ class NewsEngine:
         if "📊 Broad Market" in tags:
             return "Broad market headlines can explain moves in S&P futures, Nasdaq futures, and VIX."
         if "🗞 General News" in tags:
-            return "Important national/world news. Watch whether markets start reacting after the headline spreads."
+            return "This is important national/world context but not directly market-specific yet."
         return "Watch market reaction before treating this as important."
 
     def _watch(self, tags):
         watch = []
+
+        if "🧵 Reddit Hot" in tags:
+            watch.extend(["Verify source", "Price/volume reaction", "Do not trade rumor alone"])
         if "🏦 Fed / Rates" in tags:
             watch.extend(["US10Y", "DXY", "Nasdaq Futures", "VIX"])
         if "🛢 Oil / Geopolitics" in tags:
@@ -581,17 +634,19 @@ class NewsEngine:
         if "📊 Broad Market" in tags:
             watch.extend(["S&P Futures", "Nasdaq Futures", "VIX"])
         if "🗞 General News" in tags:
-            watch.extend(["S&P Futures", "VIX", "Dollar", "Market reaction"])
+            watch.extend(["Follow-up source", "Market reaction", "Policy impact"])
 
         deduped = []
         for item in watch:
             if item not in deduped:
                 deduped.append(item)
+
         return ", ".join(deduped[:5]) or "Market reaction"
 
     def _published_label(self, published_dt):
         if published_dt is None:
             return "Unknown"
+
         try:
             local_time = published_dt.astimezone(ZoneInfo("America/Los_Angeles"))
             return local_time.strftime("%I:%M %p PT").lstrip("0")
@@ -600,12 +655,14 @@ class NewsEngine:
 
     def _age_label(self, published_dt):
         minutes = self._age_minutes(published_dt)
+
         if minutes is None:
             return "Unknown"
         if minutes < 1:
             return "just now"
         if minutes < 60:
             return f"{minutes}m ago"
+
         hours = minutes // 60
         remaining_minutes = minutes % 60
         if remaining_minutes == 0:
@@ -615,20 +672,26 @@ class NewsEngine:
     def _age_minutes(self, published_dt):
         if published_dt is None:
             return None
+
         try:
             now = datetime.now(ZoneInfo("UTC"))
+
             if published_dt.tzinfo is None:
                 published_dt = published_dt.replace(tzinfo=ZoneInfo("UTC"))
+
             published_utc = published_dt.astimezone(ZoneInfo("UTC"))
             seconds = (now - published_utc).total_seconds()
+
             return max(0, int(seconds // 60))
         except Exception:
             return None
 
     def _env_bool(self, name, default=False):
         value = os.getenv(name)
+
         if value is None:
             return default
+
         return value.strip().lower() in ("1", "true", "yes", "y", "on")
 
     def _timestamp(self):
