@@ -4,11 +4,12 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from providers.finlight_provider import FinlightProvider
+from providers.marketaux_provider import MarketauxProvider
 from providers.rss_provider import RSSProvider
 
 
 class NewsEngine:
-    """Turns trusted headlines into market-aware news cards.
+    """Turns trusted headlines into MarketOps news cards.
 
     Provider job: fetch and verify headlines.
     Engine job: reject unrelated headlines, classify the remaining headlines,
@@ -170,9 +171,6 @@ class NewsEngine:
         "🗞 General News": GENERAL_NEWS_KEYWORDS,
     }
 
-    # Headlines matching these are usually not useful for MarketOps unless they
-    # also include a serious market/geopolitical catalyst. This blocks things like
-    # Reuters sports headlines that mention China but have nothing to do with markets.
     IRRELEVANT_KEYWORDS = [
         "world cup",
         "soccer",
@@ -275,9 +273,11 @@ class NewsEngine:
     ]
 
     def __init__(self):
+        self.marketaux_provider = MarketauxProvider()
         self.finlight_provider = FinlightProvider()
         self.rss_provider = RSSProvider()
         self.fallback_to_rss = self._env_bool("NEWS_FALLBACK_RSS", default=True)
+        self.use_finlight = self._env_bool("NEWS_USE_FINLIGHT", default=False)
         self.max_age_hours = float(os.getenv("NEWS_MAX_AGE_HOURS", "0.25"))
         self.last_provider_used = "Not checked yet"
 
@@ -288,9 +288,7 @@ class NewsEngine:
 
         tag_filter = self._resolve_category(category)
         if tag_filter is not None:
-            classified_items = [
-                item for item in classified_items if tag_filter in item["tags"]
-            ]
+            classified_items = [item for item in classified_items if tag_filter in item["tags"]]
 
         classified_items.sort(key=lambda item: item["importance_score"], reverse=True)
 
@@ -314,7 +312,6 @@ class NewsEngine:
 
         for item in classified_items:
             channel = item["channel"]
-
             if len(reports[channel]) < limit_per_channel:
                 reports[channel].append(item)
 
@@ -329,37 +326,33 @@ class NewsEngine:
 
     def channel_map_text(self):
         lines = []
-
         for tag, channel in self.CHANNEL_MAP.items():
             lines.append(f"• {tag} → `#{channel}`")
-
         return "\n".join(lines)
 
     def source_policy(self):
-        if self.finlight_provider.enabled:
+        if self.marketaux_provider.enabled:
+            return (
+                "Marketaux mode is ON. MarketOps checks Marketaux first for free market-news API coverage. "
+                "Reuters-focused RSS remains available as the backup when NEWS_FALLBACK_RSS=true."
+            )
+
+        if self.use_finlight and self.finlight_provider.enabled:
             return (
                 "Finlight mode is ON. MarketOps checks Finlight REST for fresher trusted financial news. "
                 "If Finlight returns nothing and NEWS_FALLBACK_RSS=true, it falls back to Reuters-focused RSS."
             )
 
         return (
-            "Finlight is OFF because FINLIGHT_API_KEY is missing. "
+            "Marketaux is OFF because MARKETAUX_API_KEY is missing. "
             "MarketOps is using Reuters-focused RSS fallback."
         )
 
     def freshness_policy(self):
         max_minutes = round(self.max_age_hours * 60)
-
         if max_minutes < 60:
-            return (
-                f"MarketOps shows trusted headlines published within the last "
-                f"{max_minutes} minutes."
-            )
-
-        return (
-            f"MarketOps shows trusted headlines published within the last "
-            f"{self.max_age_hours:g} hour(s)."
-        )
+            return f"MarketOps shows trusted headlines published within the last {max_minutes} minutes."
+        return f"MarketOps shows trusted headlines published within the last {self.max_age_hours:g} hour(s)."
 
     def category_help(self):
         return (
@@ -378,29 +371,56 @@ class NewsEngine:
         )
 
     def _get_raw_items(self, limit):
-        if self.finlight_provider.enabled:
-            items = self.finlight_provider.get_latest_news(limit=limit)
+        items = []
+        providers_used = []
 
-            if items:
-                self.last_provider_used = "Finlight REST"
-                return items
+        if self.marketaux_provider.enabled:
+            marketaux_items = self.marketaux_provider.get_latest_news(limit=limit)
+            if marketaux_items:
+                items.extend(marketaux_items)
+                providers_used.append("Marketaux")
 
-            if not self.fallback_to_rss:
-                self.last_provider_used = "Finlight REST (no fresh articles returned)"
-                return []
+        if self.use_finlight and self.finlight_provider.enabled:
+            finlight_items = self.finlight_provider.get_latest_news(limit=limit)
+            if finlight_items:
+                items.extend(finlight_items)
+                providers_used.append("Finlight REST")
 
-        items = self.rss_provider.get_latest_news(limit=limit)
-        self.last_provider_used = "Reuters RSS fallback"
-        return items
+        if self.fallback_to_rss:
+            rss_items = self.rss_provider.get_latest_news(limit=limit)
+            if rss_items:
+                items.extend(rss_items)
+                providers_used.append("Reuters RSS fallback")
+
+        if not items and not providers_used:
+            providers_used.append("No provider returned articles")
+
+        self.last_provider_used = " + ".join(providers_used)
+        return self._deduplicate_items(items)[:limit]
+
+    def _deduplicate_items(self, items):
+        seen = set()
+        unique = []
+
+        for item in items:
+            title = self._normalize_text(item.get("title", ""))
+            link = item.get("link", "")
+            key = link or title
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            unique.append(item)
+
+        return unique
 
     def _classify_items(self, raw_items):
         classified = []
-
         for item in raw_items:
             result = self._classify(item)
             if result is not None:
                 classified.append(result)
-
         return classified
 
     def _classify(self, item):
@@ -412,8 +432,6 @@ class NewsEngine:
 
         tags = self._detect_tags(title_text)
 
-        # If it does not match one of our approved categories, do not post it.
-        # This prevents random Reuters sports/entertainment stories from filling channels.
         if not tags:
             return None
 
@@ -424,7 +442,7 @@ class NewsEngine:
         provider = item.get("provider", "RSS")
         score = len(tags) + 1
 
-        if provider == "Finlight":
+        if provider in ("Marketaux", "Finlight"):
             score += 1
         if "reuters" in source.lower():
             score += 1
@@ -471,8 +489,6 @@ class NewsEngine:
         if self._matches_any(title_text, self.BROAD_MARKET_KEYWORDS):
             tags.append("📊 Broad Market")
 
-        # General news is only used if the headline is important but does not
-        # already belong to a market-specific channel.
         if not tags and self._matches_any(title_text, self.GENERAL_NEWS_KEYWORDS):
             tags.append("🗞 General News")
 
@@ -481,48 +497,36 @@ class NewsEngine:
     def _should_ignore(self, title_text):
         if not self._matches_any(title_text, self.IRRELEVANT_KEYWORDS):
             return False
-
-        # Keep the story only if the headline also contains a serious market,
-        # national-security, or geopolitical catalyst. Example: World Cup match
-        # results are blocked; cyberattack/war/market headlines are kept.
         return not self._matches_any(title_text, self.OVERRIDE_KEEP_KEYWORDS)
 
     def _china_market_context(self, title_text):
         if not self._keyword_match(title_text, "china") and not self._keyword_match(title_text, "beijing"):
             return False
-
         return self._matches_any(title_text, self.CHINA_CONTEXT_KEYWORDS)
 
     def _is_fresh(self, item):
         age_minutes = item.get("age_minutes")
-
         if age_minutes is None:
             return False
-
         return age_minutes <= self.max_age_hours * 60
 
     def _resolve_category(self, category):
         if category is None:
             return None
-
         normalized = category.strip().lower()
-
         return self.CATEGORY_ALIASES.get(normalized)
 
     def _primary_tag(self, tags):
         for tag in self.TAG_PRIORITY:
             if tag in tags:
                 return tag
-
         return tags[0]
 
     def _dedupe_tags(self, tags):
         deduped = []
-
         for tag in tags:
             if tag not in deduped:
                 deduped.append(tag)
-
         return deduped
 
     def _matches_any(self, text, keywords):
@@ -530,12 +534,9 @@ class NewsEngine:
 
     def _keyword_match(self, text, keyword):
         normalized_keyword = self._normalize_text(keyword)
-
         if not normalized_keyword:
             return False
-
         pattern = rf"(?<![a-z0-9]){re.escape(normalized_keyword)}(?![a-z0-9])"
-
         return re.search(pattern, text) is not None
 
     def _normalize_text(self, text):
@@ -546,68 +547,51 @@ class NewsEngine:
     def _importance(self, score):
         if score >= 4:
             return "★★★★★"
-
         if score == 3:
             return "★★★★☆"
-
         if score == 2:
             return "★★★☆☆"
-
         return "★★☆☆☆"
 
     def _why_it_matters(self, tags):
         if "🏦 Fed / Rates" in tags:
             return "Rates and inflation can move the whole market, especially tech and growth stocks."
-
         if "🛢 Oil / Geopolitics" in tags:
             return "Oil and geopolitical headlines can affect inflation, energy stocks, defense, and risk appetite."
-
         if "🤖 AI / Tech" in tags:
             return "AI and tech headlines can drive Nasdaq futures, QQQ, NVDA, AMD, and related names."
-
         if "₿ Crypto" in tags:
             return "Crypto headlines may move Bitcoin even when the broader stock market is quiet."
-
         if "📊 Broad Market" in tags:
             return "Broad market headlines can explain moves in S&P futures, Nasdaq futures, and VIX."
-
         if "🗞 General News" in tags:
-            return "Important national/world news. Not directly market-specific yet, but worth monitoring."
-
+            return "Important national/world news. Watch whether markets start reacting after the headline spreads."
         return "Watch market reaction before treating this as important."
 
     def _watch(self, tags):
         watch = []
-
         if "🏦 Fed / Rates" in tags:
             watch.extend(["US10Y", "DXY", "Nasdaq Futures", "VIX"])
-
         if "🛢 Oil / Geopolitics" in tags:
             watch.extend(["Oil", "VIX", "S&P Futures", "Defense"])
-
         if "🤖 AI / Tech" in tags:
             watch.extend(["Nasdaq Futures", "NVDA", "AMD", "QQQ"])
-
         if "₿ Crypto" in tags:
             watch.extend(["Bitcoin", "Coinbase", "Crypto ETFs"])
-
         if "📊 Broad Market" in tags:
             watch.extend(["S&P Futures", "Nasdaq Futures", "VIX"])
-
         if "🗞 General News" in tags:
-            watch.extend(["National reaction", "Policy impact", "Market reaction if it escalates"])
+            watch.extend(["S&P Futures", "VIX", "Dollar", "Market reaction"])
 
         deduped = []
         for item in watch:
             if item not in deduped:
                 deduped.append(item)
-
         return ", ".join(deduped[:5]) or "Market reaction"
 
     def _published_label(self, published_dt):
         if published_dt is None:
             return "Unknown"
-
         try:
             local_time = published_dt.astimezone(ZoneInfo("America/Los_Angeles"))
             return local_time.strftime("%I:%M %p PT").lstrip("0")
@@ -616,48 +600,35 @@ class NewsEngine:
 
     def _age_label(self, published_dt):
         minutes = self._age_minutes(published_dt)
-
         if minutes is None:
             return "Unknown"
-
         if minutes < 1:
             return "just now"
-
         if minutes < 60:
             return f"{minutes}m ago"
-
         hours = minutes // 60
         remaining_minutes = minutes % 60
-
         if remaining_minutes == 0:
             return f"{hours}h ago"
-
         return f"{hours}h {remaining_minutes}m ago"
 
     def _age_minutes(self, published_dt):
         if published_dt is None:
             return None
-
         try:
             now = datetime.now(ZoneInfo("UTC"))
-
             if published_dt.tzinfo is None:
                 published_dt = published_dt.replace(tzinfo=ZoneInfo("UTC"))
-
             published_utc = published_dt.astimezone(ZoneInfo("UTC"))
             seconds = (now - published_utc).total_seconds()
-
             return max(0, int(seconds // 60))
-
         except Exception:
             return None
 
     def _env_bool(self, name, default=False):
         value = os.getenv(name)
-
         if value is None:
             return default
-
         return value.strip().lower() in ("1", "true", "yes", "y", "on")
 
     def _timestamp(self):
