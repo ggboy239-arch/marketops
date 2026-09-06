@@ -84,8 +84,6 @@ class NewsEngine:
     ]
 
     CHINA_CONTEXT_KEYWORDS = [
-        "china",
-        "beijing",
         "tariff",
         "tariffs",
         "trade",
@@ -133,12 +131,43 @@ class NewsEngine:
         "market wrap",
     ]
 
+    GENERAL_NEWS_KEYWORDS = [
+        "white house",
+        "congress",
+        "senate",
+        "house votes",
+        "supreme court",
+        "court",
+        "judge",
+        "lawsuit",
+        "president",
+        "administration",
+        "government shutdown",
+        "national emergency",
+        "cyberattack",
+        "cyber attack",
+        "data breach",
+        "election",
+        "vote",
+        "immigration",
+        "border",
+        "protest",
+        "strike",
+        "hurricane",
+        "wildfire",
+        "earthquake",
+        "public health",
+        "fema",
+        "national guard",
+    ]
+
     KEYWORDS = {
         "🤖 AI / Tech": AI_TECH_KEYWORDS,
         "🏦 Fed / Rates": FED_RATES_KEYWORDS,
         "🛢 Oil / Geopolitics": GEO_STRONG_KEYWORDS,
         "₿ Crypto": CRYPTO_KEYWORDS,
         "📊 Broad Market": BROAD_MARKET_KEYWORDS,
+        "🗞 General News": GENERAL_NEWS_KEYWORDS,
     }
 
     # Headlines matching these are usually not useful for MarketOps unless they
@@ -192,6 +221,8 @@ class NewsEngine:
         "tariff",
         "ceasefire",
         "missile",
+        "cyberattack",
+        "cyber attack",
     ]
 
     CATEGORY_ALIASES = {
@@ -210,6 +241,10 @@ class NewsEngine:
         "oil": "🛢 Oil / Geopolitics",
         "crypto": "₿ Crypto",
         "bitcoin": "₿ Crypto",
+        "general": "🗞 General News",
+        "national": "🗞 General News",
+        "nationwide": "🗞 General News",
+        "world": "🗞 General News",
     }
 
     CHANNEL_MAP = {
@@ -218,10 +253,12 @@ class NewsEngine:
         "🛢 Oil / Geopolitics": "geopolitics",
         "₿ Crypto": "crypto",
         "📊 Broad Market": "breaking-news",
+        "🗞 General News": "general-news",
     }
 
     CHANNEL_ORDER = [
         "breaking-news",
+        "general-news",
         "ai-news",
         "fed",
         "geopolitics",
@@ -234,6 +271,7 @@ class NewsEngine:
         "🤖 AI / Tech",
         "₿ Crypto",
         "📊 Broad Market",
+        "🗞 General News",
     ]
 
     def __init__(self):
@@ -326,12 +364,13 @@ class NewsEngine:
     def category_help(self):
         return (
             "Use one of these:\n"
-            "• `!news` — all trusted market news\n"
+            "• `!news` — all trusted MarketOps news\n"
+            "• `!news market` — market-moving / broad market\n"
+            "• `!news general` — important national/world news, not directly market-related\n"
             "• `!news ai` — AI / tech\n"
             "• `!news fed` — Fed / rates / inflation\n"
             "• `!news geo` — oil / geopolitics\n"
             "• `!news crypto` — bitcoin / crypto\n"
-            "• `!news market` — broad market\n"
             "• `!news channels` — show channel routing\n"
             "• `!news sources` — show trusted-source policy\n"
             "• `!news debug` — show how many fresh headlines each channel found\n"
@@ -373,8 +412,8 @@ class NewsEngine:
 
         tags = self._detect_tags(title_text)
 
-        # If it does not match one of our market categories, do not post it.
-        # This prevents random Reuters sports/world stories from filling channels.
+        # If it does not match one of our approved categories, do not post it.
+        # This prevents random Reuters sports/entertainment stories from filling channels.
         if not tags:
             return None
 
@@ -432,15 +471,20 @@ class NewsEngine:
         if self._matches_any(title_text, self.BROAD_MARKET_KEYWORDS):
             tags.append("📊 Broad Market")
 
+        # General news is only used if the headline is important but does not
+        # already belong to a market-specific channel.
+        if not tags and self._matches_any(title_text, self.GENERAL_NEWS_KEYWORDS):
+            tags.append("🗞 General News")
+
         return self._dedupe_tags(tags)
 
     def _should_ignore(self, title_text):
         if not self._matches_any(title_text, self.IRRELEVANT_KEYWORDS):
             return False
 
-        # Keep the story only if the headline also contains a serious market or
-        # geopolitical catalyst. Example: a company sponsorship deal could matter,
-        # but a World Cup match result should not.
+        # Keep the story only if the headline also contains a serious market,
+        # national-security, or geopolitical catalyst. Example: World Cup match
+        # results are blocked; cyberattack/war/market headlines are kept.
         return not self._matches_any(title_text, self.OVERRIDE_KEEP_KEYWORDS)
 
     def _china_market_context(self, title_text):
@@ -527,6 +571,9 @@ class NewsEngine:
         if "📊 Broad Market" in tags:
             return "Broad market headlines can explain moves in S&P futures, Nasdaq futures, and VIX."
 
+        if "🗞 General News" in tags:
+            return "Important national/world news. Not directly market-specific yet, but worth monitoring."
+
         return "Watch market reaction before treating this as important."
 
     def _watch(self, tags):
@@ -546,6 +593,9 @@ class NewsEngine:
 
         if "📊 Broad Market" in tags:
             watch.extend(["S&P Futures", "Nasdaq Futures", "VIX"])
+
+        if "🗞 General News" in tags:
+            watch.extend(["National reaction", "Policy impact", "Market reaction if it escalates"])
 
         deduped = []
         for item in watch:
