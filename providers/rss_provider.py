@@ -4,6 +4,7 @@ import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from email.utils import parsedate_to_datetime
+from urllib.parse import quote_plus
 
 import requests
 from dotenv import load_dotenv
@@ -19,43 +20,59 @@ class RSSProvider:
     """
 
     REUTERS_ENV_FEEDS = [
-        ("Reuters Markets", "REUTERS_MARKETS_RSS"),
-        ("Reuters Business", "REUTERS_BUSINESS_RSS"),
-        ("Reuters Technology", "REUTERS_TECH_RSS"),
-        ("Reuters World", "REUTERS_WORLD_RSS"),
+        ("Reuters Markets", "REUTERS_MARKETS_RSS", "📊 Broad Market"),
+        ("Reuters Business", "REUTERS_BUSINESS_RSS", "📊 Broad Market"),
+        ("Reuters Technology", "REUTERS_TECH_RSS", "🤖 AI / Tech"),
+        ("Reuters World", "REUTERS_WORLD_RSS", "🛢 Oil / Geopolitics"),
+        ("Reuters Crypto", "REUTERS_CRYPTO_RSS", "₿ Crypto"),
+        ("Reuters Fed / Rates", "REUTERS_FED_RSS", "🏦 Fed / Rates"),
     ]
 
-    DEFAULT_FEEDS = [
+    REUTERS_SEARCH_FEEDS = [
         {
             "name": "Reuters Markets",
-            "url": "https://news.google.com/rss/search?q=site%3Areuters.com%2Fmarkets&hl=en-US&gl=US&ceid=US%3Aen",
+            "query": "site:reuters.com/markets stocks OR futures OR Wall Street OR Nasdaq OR S&P",
+            "category_hint": "📊 Broad Market",
         },
         {
-            "name": "Reuters Business",
-            "url": "https://news.google.com/rss/search?q=site%3Areuters.com%2Fbusiness&hl=en-US&gl=US&ceid=US%3Aen",
+            "name": "Reuters AI / Tech",
+            "query": "site:reuters.com AI OR Nvidia OR AMD OR semiconductor OR chips OR Microsoft OR Amazon",
+            "category_hint": "🤖 AI / Tech",
         },
         {
-            "name": "Reuters Technology",
-            "url": "https://news.google.com/rss/search?q=site%3Areuters.com%2Ftechnology&hl=en-US&gl=US&ceid=US%3Aen",
+            "name": "Reuters Fed / Rates",
+            "query": "site:reuters.com Fed OR Powell OR inflation OR CPI OR PPI OR yields OR Treasury OR jobs",
+            "category_hint": "🏦 Fed / Rates",
         },
         {
-            "name": "Reuters World",
-            "url": "https://news.google.com/rss/search?q=site%3Areuters.com%2Fworld&hl=en-US&gl=US&ceid=US%3Aen",
+            "name": "Reuters Oil / Geopolitics",
+            "query": "site:reuters.com oil OR crude OR OPEC OR Iran OR Israel OR Lebanon OR Hezbollah OR Ukraine OR China OR Taiwan",
+            "category_hint": "🛢 Oil / Geopolitics",
         },
+        {
+            "name": "Reuters Crypto",
+            "query": "site:reuters.com bitcoin OR crypto OR ethereum OR Coinbase OR spot bitcoin ETF OR ether ETF",
+            "category_hint": "₿ Crypto",
+        },
+    ]
+
+    EXTRA_FEEDS = [
         {
             "name": "Yahoo Finance",
             "url": "https://finance.yahoo.com/news/rssindex",
+            "category_hint": "📊 Broad Market",
         },
         {
             "name": "CNBC Top News",
             "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+            "category_hint": "📊 Broad Market",
         },
     ]
 
     def __init__(self, feeds=None):
         self.feeds = feeds or self._load_feeds()
         self.headers = {
-            "User-Agent": "MarketOps/0.5.1 (personal market dashboard)",
+            "User-Agent": "MarketOps/0.5.3 (personal market dashboard)",
         }
 
     def get_latest_news(self, limit=10):
@@ -72,7 +89,7 @@ class RSSProvider:
     def _load_feeds(self):
         feeds = []
 
-        for name, env_name in self.REUTERS_ENV_FEEDS:
+        for name, env_name, category_hint in self.REUTERS_ENV_FEEDS:
             url = os.getenv(env_name)
 
             if url:
@@ -80,12 +97,30 @@ class RSSProvider:
                     {
                         "name": name,
                         "url": url,
+                        "category_hint": category_hint,
                     }
                 )
 
-        feeds.extend(self.DEFAULT_FEEDS)
+        for feed in self.REUTERS_SEARCH_FEEDS:
+            feeds.append(
+                {
+                    "name": feed["name"],
+                    "url": self._google_news_rss(feed["query"]),
+                    "category_hint": feed["category_hint"],
+                }
+            )
+
+        feeds.extend(self.EXTRA_FEEDS)
 
         return feeds
+
+    def _google_news_rss(self, query):
+        encoded_query = quote_plus(query)
+        return (
+            "https://news.google.com/rss/search"
+            f"?q={encoded_query}"
+            "&hl=en-US&gl=US&ceid=US:en"
+        )
 
     def _fetch_feed(self, feed):
         try:
@@ -99,13 +134,14 @@ class RSSProvider:
             return self._parse_rss(
                 source=feed["name"],
                 text=response.text,
+                category_hint=feed.get("category_hint"),
             )
 
         except Exception as error:
             print(f"❌ RSS error from {feed['name']}: {error}")
             return []
 
-    def _parse_rss(self, source, text):
+    def _parse_rss(self, source, text, category_hint=None):
         root = ET.fromstring(text)
         items = []
 
@@ -113,7 +149,7 @@ class RSSProvider:
 
         if rss_items:
             for item in rss_items:
-                parsed = self._parse_rss_item(source, item)
+                parsed = self._parse_rss_item(source, item, category_hint)
                 if parsed is not None:
                     items.append(parsed)
 
@@ -122,13 +158,13 @@ class RSSProvider:
         atom_items = root.findall(".//{http://www.w3.org/2005/Atom}entry")
 
         for item in atom_items:
-            parsed = self._parse_atom_item(source, item)
+            parsed = self._parse_atom_item(source, item, category_hint)
             if parsed is not None:
                 items.append(parsed)
 
         return items
 
-    def _parse_rss_item(self, source, item):
+    def _parse_rss_item(self, source, item, category_hint=None):
         title = self._find_text(item, "title")
         link = self._find_text(item, "link")
         description = self._find_text(item, "description")
@@ -144,9 +180,10 @@ class RSSProvider:
             "summary": self._clean_text(description or ""),
             "published": published or "",
             "published_dt": self._parse_date(published),
+            "category_hint": category_hint,
         }
 
-    def _parse_atom_item(self, source, item):
+    def _parse_atom_item(self, source, item, category_hint=None):
         title = self._find_text(item, "{http://www.w3.org/2005/Atom}title")
         summary = self._find_text(item, "{http://www.w3.org/2005/Atom}summary")
         updated = self._find_text(item, "{http://www.w3.org/2005/Atom}updated")
@@ -166,6 +203,7 @@ class RSSProvider:
             "summary": self._clean_text(summary or ""),
             "published": updated or "",
             "published_dt": self._parse_date(updated),
+            "category_hint": category_hint,
         }
 
     def _find_text(self, item, tag):
@@ -206,7 +244,9 @@ class RSSProvider:
         unique_items = []
 
         for item in items:
-            key = (item.get("title", "").lower(), item.get("link", ""))
+            title = item.get("title", "").lower()
+            link = item.get("link", "")
+            key = (title, link)
 
             if key in seen:
                 continue
