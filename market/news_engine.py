@@ -66,13 +66,17 @@ class NewsEngine:
         ],
         "₿ Crypto": [
             "bitcoin",
+            "btc",
             "crypto",
             "cryptocurrency",
             "ethereum",
+            "ether",
             "coinbase",
-            "sec",
-            "etf",
-            "blackrock",
+            "spot bitcoin etf",
+            "bitcoin etf",
+            "ethereum etf",
+            "ether etf",
+            "crypto etf",
         ],
         "📊 Broad Market": [
             "stocks",
@@ -85,6 +89,7 @@ class NewsEngine:
             "market",
             "markets",
             "investors",
+            "etf",
         ],
     }
 
@@ -115,6 +120,14 @@ class NewsEngine:
         "📰 General": "breaking-news",
     }
 
+    CHANNEL_ORDER = [
+        "breaking-news",
+        "ai-news",
+        "fed",
+        "geopolitics",
+        "crypto",
+    ]
+
     TAG_PRIORITY = [
         "🏦 Fed / Rates",
         "🛢 Oil / Geopolitics",
@@ -128,7 +141,7 @@ class NewsEngine:
         self.provider = RSSProvider()
 
     def get_top_news(self, limit=5, category="all"):
-        raw_items = self.provider.get_latest_news(limit=30)
+        raw_items = self.provider.get_latest_news(limit=50)
         classified_items = [self._classify(item) for item in raw_items]
 
         tag_filter = self._resolve_category(category)
@@ -147,11 +160,11 @@ class NewsEngine:
         }
 
     def get_channel_reports(self, limit_per_channel=3):
-        raw_items = self.provider.get_latest_news(limit=40)
+        raw_items = self.provider.get_latest_news(limit=75)
         classified_items = [self._classify(item) for item in raw_items]
         classified_items.sort(key=lambda item: item["importance_score"], reverse=True)
 
-        reports = {}
+        reports = {channel: [] for channel in self.CHANNEL_ORDER}
 
         for item in classified_items:
             channel = item["channel"]
@@ -164,6 +177,7 @@ class NewsEngine:
 
         return {
             "channels": reports,
+            "counts": {channel: len(items) for channel, items in reports.items()},
             "updated": self._timestamp(),
         }
 
@@ -185,6 +199,7 @@ class NewsEngine:
             "• `!news crypto` — bitcoin / crypto\n"
             "• `!news market` — broad market\n"
             "• `!news channels` — show channel routing\n"
+            "• `!news debug` — show how many headlines each channel found\n"
             "• `!news post` — post headlines into the matching channels"
         )
 
@@ -193,10 +208,17 @@ class NewsEngine:
         tags = []
         score = 1
 
+        category_hint = item.get("category_hint")
+        if category_hint:
+            tags.append(category_hint)
+            score += 1
+
         for tag, keywords in self.KEYWORDS.items():
             if any(keyword in text for keyword in keywords):
                 tags.append(tag)
                 score += 1
+
+        tags = self._dedupe_tags(tags)
 
         if not tags:
             tags.append("📰 General")
@@ -238,6 +260,15 @@ class NewsEngine:
                 return tag
 
         return tags[0]
+
+    def _dedupe_tags(self, tags):
+        deduped = []
+
+        for tag in tags:
+            if tag not in deduped:
+                deduped.append(tag)
+
+        return deduped
 
     def _importance(self, score):
         if score >= 4:
