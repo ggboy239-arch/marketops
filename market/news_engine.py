@@ -11,97 +11,188 @@ class NewsEngine:
     """Turns trusted headlines into market-aware news cards.
 
     Provider job: fetch and verify headlines.
-    Engine job: classify headlines, explain why they matter, choose what to watch,
-    and decide which Discord channel should receive the headline.
+    Engine job: reject unrelated headlines, classify the remaining headlines,
+    explain why they matter, and route them to the correct Discord channel.
     """
 
+    AI_TECH_KEYWORDS = [
+        "ai",
+        "artificial intelligence",
+        "nvidia",
+        "nvda",
+        "amd",
+        "semiconductor",
+        "semiconductors",
+        "chip",
+        "chips",
+        "data center",
+        "data centers",
+        "microsoft",
+        "amazon",
+        "apple",
+        "openai",
+        "google",
+        "meta",
+    ]
+
+    FED_RATES_KEYWORDS = [
+        "fed",
+        "federal reserve",
+        "powell",
+        "rate hike",
+        "rate cut",
+        "rates",
+        "yield",
+        "yields",
+        "treasury",
+        "treasuries",
+        "inflation",
+        "cpi",
+        "ppi",
+        "jobs report",
+        "payroll",
+        "payrolls",
+        "gdp",
+    ]
+
+    GEO_STRONG_KEYWORDS = [
+        "oil",
+        "crude",
+        "brent",
+        "wti",
+        "opec",
+        "iran",
+        "israel",
+        "gaza",
+        "west bank",
+        "netanyahu",
+        "hezbollah",
+        "lebanon",
+        "hormuz",
+        "middle east",
+        "russia",
+        "ukraine",
+        "kyiv",
+        "taiwan",
+        "north korea",
+        "nato",
+        "war",
+        "sanctions",
+        "missile",
+        "attack",
+        "ceasefire",
+    ]
+
+    CHINA_CONTEXT_KEYWORDS = [
+        "china",
+        "beijing",
+        "tariff",
+        "tariffs",
+        "trade",
+        "exports",
+        "export controls",
+        "sanctions",
+        "taiwan",
+        "military",
+        "economy",
+        "economic",
+        "markets",
+        "stocks",
+        "shares",
+        "chips",
+        "semiconductor",
+    ]
+
+    CRYPTO_KEYWORDS = [
+        "bitcoin",
+        "btc",
+        "crypto",
+        "cryptocurrency",
+        "ethereum",
+        "ether",
+        "coinbase",
+        "spot bitcoin etf",
+        "bitcoin etf",
+        "ethereum etf",
+        "ether etf",
+        "crypto etf",
+    ]
+
+    BROAD_MARKET_KEYWORDS = [
+        "stocks",
+        "shares",
+        "wall street",
+        "s&p",
+        "s&p 500",
+        "nasdaq",
+        "dow",
+        "futures",
+        "global markets",
+        "investors",
+        "markets",
+        "market wrap",
+    ]
+
     KEYWORDS = {
-        "🤖 AI / Tech": [
-            "ai",
-            "artificial intelligence",
-            "nvidia",
-            "nvda",
-            "amd",
-            "semiconductor",
-            "semiconductors",
-            "chip",
-            "chips",
-            "data center",
-            "data centers",
-            "microsoft",
-            "amazon",
-            "apple",
-            "openai",
-            "google",
-            "meta",
-        ],
-        "🏦 Fed / Rates": [
-            "fed",
-            "federal reserve",
-            "powell",
-            "rate hike",
-            "rate cut",
-            "rates",
-            "yield",
-            "yields",
-            "treasury",
-            "treasuries",
-            "inflation",
-            "cpi",
-            "ppi",
-            "jobs report",
-            "payroll",
-            "payrolls",
-            "gdp",
-        ],
-        "🛢 Oil / Geopolitics": [
-            "oil",
-            "crude",
-            "brent",
-            "wti",
-            "opec",
-            "iran",
-            "israel",
-            "hezbollah",
-            "lebanon",
-            "hormuz",
-            "middle east",
-            "russia",
-            "ukraine",
-            "china",
-            "taiwan",
-            "north korea",
-            "nato",
-            "war",
-            "sanctions",
-        ],
-        "₿ Crypto": [
-            "bitcoin",
-            "btc",
-            "crypto",
-            "cryptocurrency",
-            "ethereum",
-            "ether",
-            "coinbase",
-            "spot bitcoin etf",
-            "bitcoin etf",
-            "ethereum etf",
-            "ether etf",
-            "crypto etf",
-        ],
-        "📊 Broad Market": [
-            "stocks",
-            "shares",
-            "wall street",
-            "s&p",
-            "s&p 500",
-            "nasdaq",
-            "dow",
-            "futures",
-            "global markets",
-            "investors",
-        ],
+        "🤖 AI / Tech": AI_TECH_KEYWORDS,
+        "🏦 Fed / Rates": FED_RATES_KEYWORDS,
+        "🛢 Oil / Geopolitics": GEO_STRONG_KEYWORDS,
+        "₿ Crypto": CRYPTO_KEYWORDS,
+        "📊 Broad Market": BROAD_MARKET_KEYWORDS,
     }
+
+    # Headlines matching these are usually not useful for MarketOps unless they
+    # also include a serious market/geopolitical catalyst. This blocks things like
+    # Reuters sports headlines that mention China but have nothing to do with markets.
+    IRRELEVANT_KEYWORDS = [
+        "world cup",
+        "soccer",
+        "football",
+        "basketball",
+        "baseball",
+        "tennis",
+        "golf",
+        "cricket",
+        "rugby",
+        "fifa",
+        "uefa",
+        "nba",
+        "nfl",
+        "mlb",
+        "nhl",
+        "olympics",
+        "olympic",
+        "tournament",
+        "match",
+        "movie",
+        "film",
+        "celebrity",
+        "music",
+        "fashion",
+        "recipe",
+    ]
+
+    OVERRIDE_KEEP_KEYWORDS = [
+        "stocks",
+        "shares",
+        "market",
+        "markets",
+        "futures",
+        "oil",
+        "crude",
+        "fed",
+        "inflation",
+        "rate",
+        "rates",
+        "yield",
+        "treasury",
+        "war",
+        "attack",
+        "sanctions",
+        "tariff",
+        "ceasefire",
+        "missile",
+    ]
 
     CATEGORY_ALIASES = {
         "all": None,
@@ -127,7 +218,6 @@ class NewsEngine:
         "🛢 Oil / Geopolitics": "geopolitics",
         "₿ Crypto": "crypto",
         "📊 Broad Market": "breaking-news",
-        "📰 General": "breaking-news",
     }
 
     CHANNEL_ORDER = [
@@ -144,21 +234,18 @@ class NewsEngine:
         "🤖 AI / Tech",
         "₿ Crypto",
         "📊 Broad Market",
-        "📰 General",
     ]
 
     def __init__(self):
         self.finlight_provider = FinlightProvider()
         self.rss_provider = RSSProvider()
         self.fallback_to_rss = self._env_bool("NEWS_FALLBACK_RSS", default=True)
-        # Default is 15 minutes. This is the freshness filter, not the poll delay.
         self.max_age_hours = float(os.getenv("NEWS_MAX_AGE_HOURS", "0.25"))
-        self.active_provider_name = "Finlight" if self.finlight_provider.enabled else "Reuters RSS"
         self.last_provider_used = "Not checked yet"
 
     def get_top_news(self, limit=5, category="all"):
         raw_items = self._get_raw_items(limit=50)
-        classified_items = [self._classify(item) for item in raw_items]
+        classified_items = self._classify_items(raw_items)
         classified_items = [item for item in classified_items if self._is_fresh(item)]
 
         tag_filter = self._resolve_category(category)
@@ -181,7 +268,7 @@ class NewsEngine:
 
     def get_channel_reports(self, limit_per_channel=3):
         raw_items = self._get_raw_items(limit=75)
-        classified_items = [self._classify(item) for item in raw_items]
+        classified_items = self._classify_items(raw_items)
         classified_items = [item for item in classified_items if self._is_fresh(item)]
         classified_items.sort(key=lambda item: item["importance_score"], reverse=True)
 
@@ -189,9 +276,6 @@ class NewsEngine:
 
         for item in classified_items:
             channel = item["channel"]
-
-            if channel not in reports:
-                reports[channel] = []
 
             if len(reports[channel]) < limit_per_channel:
                 reports[channel].append(item)
@@ -270,31 +354,37 @@ class NewsEngine:
         self.last_provider_used = "Reuters RSS fallback"
         return items
 
+    def _classify_items(self, raw_items):
+        classified = []
+
+        for item in raw_items:
+            result = self._classify(item)
+            if result is not None:
+                classified.append(result)
+
+        return classified
+
     def _classify(self, item):
-        title_text = self._normalize_text(item.get("title", ""))
-        tags = []
-        score = 1
+        title = item.get("title", "Untitled")
+        title_text = self._normalize_text(title)
 
-        category_hint = item.get("category_hint")
-        if category_hint:
-            tags.append(category_hint)
-            score += 1
+        if self._should_ignore(title_text):
+            return None
 
-        for tag, keywords in self.KEYWORDS.items():
-            if self._matches_any(title_text, keywords):
-                tags.append(tag)
-                score += 1
+        tags = self._detect_tags(title_text)
 
-        tags = self._dedupe_tags(tags)
-
+        # If it does not match one of our market categories, do not post it.
+        # This prevents random Reuters sports/world stories from filling channels.
         if not tags:
-            tags.append("📰 General")
+            return None
 
         primary_tag = self._primary_tag(tags)
-        channel = self.CHANNEL_MAP.get(primary_tag, "breaking-news")
+        channel = self.CHANNEL_MAP[primary_tag]
 
         source = item.get("source", "")
         provider = item.get("provider", "RSS")
+        score = len(tags) + 1
+
         if provider == "Finlight":
             score += 1
         if "reuters" in source.lower():
@@ -305,7 +395,7 @@ class NewsEngine:
 
         return {
             "source": source or provider or "Unknown",
-            "title": item.get("title", "Untitled"),
+            "title": title,
             "link": item.get("link", ""),
             "summary": item.get("summary", ""),
             "published": item.get("published", ""),
@@ -323,6 +413,41 @@ class NewsEngine:
             "trusted": item.get("trusted", False),
             "provider": provider,
         }
+
+    def _detect_tags(self, title_text):
+        tags = []
+
+        if self._matches_any(title_text, self.FED_RATES_KEYWORDS):
+            tags.append("🏦 Fed / Rates")
+
+        if self._matches_any(title_text, self.GEO_STRONG_KEYWORDS) or self._china_market_context(title_text):
+            tags.append("🛢 Oil / Geopolitics")
+
+        if self._matches_any(title_text, self.AI_TECH_KEYWORDS):
+            tags.append("🤖 AI / Tech")
+
+        if self._matches_any(title_text, self.CRYPTO_KEYWORDS):
+            tags.append("₿ Crypto")
+
+        if self._matches_any(title_text, self.BROAD_MARKET_KEYWORDS):
+            tags.append("📊 Broad Market")
+
+        return self._dedupe_tags(tags)
+
+    def _should_ignore(self, title_text):
+        if not self._matches_any(title_text, self.IRRELEVANT_KEYWORDS):
+            return False
+
+        # Keep the story only if the headline also contains a serious market or
+        # geopolitical catalyst. Example: a company sponsorship deal could matter,
+        # but a World Cup match result should not.
+        return not self._matches_any(title_text, self.OVERRIDE_KEEP_KEYWORDS)
+
+    def _china_market_context(self, title_text):
+        if not self._keyword_match(title_text, "china") and not self._keyword_match(title_text, "beijing"):
+            return False
+
+        return self._matches_any(title_text, self.CHINA_CONTEXT_KEYWORDS)
 
     def _is_fresh(self, item):
         age_minutes = item.get("age_minutes")
@@ -402,7 +527,7 @@ class NewsEngine:
         if "📊 Broad Market" in tags:
             return "Broad market headlines can explain moves in S&P futures, Nasdaq futures, and VIX."
 
-        return "This may be useful context, but wait for market reaction before treating it as important."
+        return "Watch market reaction before treating this as important."
 
     def _watch(self, tags):
         watch = []
@@ -422,15 +547,12 @@ class NewsEngine:
         if "📊 Broad Market" in tags:
             watch.extend(["S&P Futures", "Nasdaq Futures", "VIX"])
 
-        if not watch:
-            watch.append("Market reaction")
-
         deduped = []
         for item in watch:
             if item not in deduped:
                 deduped.append(item)
 
-        return ", ".join(deduped[:5])
+        return ", ".join(deduped[:5]) or "Market reaction"
 
     def _published_label(self, published_dt):
         if published_dt is None:
