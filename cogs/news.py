@@ -12,7 +12,7 @@ from discord.ext import commands, tasks
 from market.news_engine import NewsEngine
 
 
-VERSION = "MarketOps v0.6.2"
+VERSION = "MarketOps v0.6.3"
 
 
 class News(commands.Cog):
@@ -46,11 +46,12 @@ class News(commands.Cog):
     @app_commands.choices(
         category=[
             app_commands.Choice(name="all", value="all"),
+            app_commands.Choice(name="broad market", value="market"),
+            app_commands.Choice(name="general / national", value="general"),
             app_commands.Choice(name="AI / tech", value="ai"),
             app_commands.Choice(name="Fed / rates", value="fed"),
             app_commands.Choice(name="oil / geopolitics", value="geo"),
             app_commands.Choice(name="crypto", value="crypto"),
-            app_commands.Choice(name="broad market", value="market"),
         ]
     )
     async def news_slash(
@@ -83,6 +84,8 @@ class News(commands.Cog):
 
         Examples:
         !news
+        !news market
+        !news general
         !news ai
         !news geo
         !news fed
@@ -271,7 +274,7 @@ class News(commands.Cog):
 
         embed = discord.Embed(
             title=self._title_for_category(category),
-            description="Fresh trusted headlines with market impact notes.",
+            description="Fresh trusted headlines routed by topic.",
             color=discord.Color.blue(),
         )
 
@@ -360,6 +363,14 @@ class News(commands.Cog):
             value="Type `!news post` to send current fresh trusted headlines into the matching channels.",
             inline=False,
         )
+        embed.add_field(
+            name="Rule",
+            value=(
+                "`#breaking-news` is for market-moving headlines. "
+                "`#general-news` is for important national/world headlines that are not directly market-specific."
+            ),
+            inline=False,
+        )
         embed.set_footer(text=VERSION)
         return embed
 
@@ -373,15 +384,14 @@ class News(commands.Cog):
         embed.add_field(
             name="Important Reality",
             value=(
-                "Finlight REST can be fresher than RSS, but true instant breaking news requires "
-                "a push feed such as WebSocket or webhook access."
+                "Free RSS/search monitoring is near-live, but true instant breaking news requires "
+                "a paid push feed such as WebSocket or webhook access."
             ),
             inline=False,
         )
         embed.add_field(
             name="Recommended .env Settings",
             value=(
-                "`FINLIGHT_API_KEY=your_key_here`\n"
                 "`NEWS_MAX_AGE_HOURS=0.25`\n"
                 "`NEWS_POLL_MINUTES=1`\n"
                 "`NEWS_FALLBACK_RSS=true`"
@@ -454,7 +464,14 @@ class News(commands.Cog):
         if not counts:
             return ""
 
-        ordered = ["breaking-news", "ai-news", "fed", "geopolitics", "crypto"]
+        ordered = [
+            "breaking-news",
+            "general-news",
+            "ai-news",
+            "fed",
+            "geopolitics",
+            "crypto",
+        ]
         lines = []
 
         for channel in ordered:
@@ -470,8 +487,16 @@ class News(commands.Cog):
     def _title_for_category(self, category):
         titles = {
             "all": "📰 MarketOps News",
+            "market": "📊 Broad Market News",
+            "markets": "📊 Broad Market News",
+            "breaking-news": "🚨 Market-Moving Breaking News",
+            "general": "🗞 General News",
+            "national": "🗞 General News",
+            "world": "🗞 General News",
+            "general-news": "🗞 General News",
             "ai": "🤖 AI / Tech News",
             "tech": "🤖 AI / Tech News",
+            "ai-news": "🤖 AI / Tech News",
             "fed": "🏦 Fed / Rates News",
             "rates": "🏦 Fed / Rates News",
             "geo": "🛢 Oil / Geopolitics News",
@@ -479,12 +504,6 @@ class News(commands.Cog):
             "oil": "🛢 Oil / Geopolitics News",
             "crypto": "₿ Crypto News",
             "bitcoin": "₿ Crypto News",
-            "market": "📊 Broad Market News",
-            "breaking-news": "🚨 Breaking News",
-            "ai-news": "🤖 AI / Tech News",
-            "fed": "🏦 Fed / Rates News",
-            "geopolitics": "🛢 Oil / Geopolitics News",
-            "crypto": "₿ Crypto News",
         }
 
         return titles.get(category, f"📰 MarketOps News — {category}")
