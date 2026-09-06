@@ -32,7 +32,7 @@ class News(commands.Cog):
 
     @app_commands.command(
         name="news",
-        description="View top market-moving headlines.",
+        description="View top trusted market-moving headlines.",
     )
     @app_commands.describe(
         category="Choose a news category."
@@ -83,6 +83,7 @@ class News(commands.Cog):
         !news fed
         !news crypto
         !news channels
+        !news sources
         !news debug
         !news post
         !news live
@@ -96,6 +97,10 @@ class News(commands.Cog):
 
             if category in ("channels", "channel"):
                 await ctx.send(embed=self._build_channel_map_embed())
+                return
+
+            if category in ("sources", "source", "reuters"):
+                await ctx.send(embed=self._build_sources_embed())
                 return
 
             if category in ("debug", "counts", "count"):
@@ -149,7 +154,7 @@ class News(commands.Cog):
                 self._mark_items_seen(all_items)
                 self._save_seen_news()
                 print(
-                    "📰 News monitor seeded current headlines. "
+                    "📰 News monitor seeded current trusted headlines. "
                     "New headlines will auto-post after this."
                 )
                 return
@@ -193,7 +198,7 @@ class News(commands.Cog):
 
         counts = report.get("counts", {})
         count_text = self._format_counts(counts)
-        message = f"✅ Posted news into **{posted_count}** channel(s)."
+        message = f"✅ Posted trusted news into **{posted_count}** channel(s)."
 
         if count_text:
             message += f"\n\nFound by channel:\n{count_text}"
@@ -241,6 +246,7 @@ class News(commands.Cog):
                     "items": items_to_post,
                     "category": channel_name,
                     "updated": report.get("updated", "Unknown"),
+                    "source_policy": report.get("source_policy", "Trusted source mode."),
                 }
             )
             await channel.send(embed=embed)
@@ -254,7 +260,7 @@ class News(commands.Cog):
 
         embed = discord.Embed(
             title=title,
-            description="Reuters-focused headlines with market impact notes.",
+            description="Trusted Reuters-focused headlines with market impact notes.",
             color=discord.Color.blue(),
         )
 
@@ -262,8 +268,11 @@ class News(commands.Cog):
 
         if not items:
             embed.add_field(
-                name="No headlines found",
-                value="Try another category or check again in a few minutes.",
+                name="No trusted headlines found",
+                value=(
+                    "MarketOps did not find a matching trusted headline in the current RSS window. "
+                    "It will not invent news just to fill the channel."
+                ),
                 inline=False,
             )
         else:
@@ -275,7 +284,7 @@ class News(commands.Cog):
                 )
 
         embed.set_footer(
-            text=f'Updated {report.get("updated", "Unknown")} • MarketOps v0.5.3'
+            text=f'Updated {report.get("updated", "Unknown")} • MarketOps v0.5.4'
         )
 
         return embed
@@ -287,6 +296,7 @@ class News(commands.Cog):
         channel = item.get("channel", "breaking-news")
         why = item.get("why_it_matters", "Watch market reaction.")
         watch = item.get("watch", "Market reaction")
+        trusted_badge = "✅ Trusted" if item.get("trusted") else "⚠️ Unverified"
 
         if link:
             headline = f"[{title}]({link})"
@@ -295,6 +305,7 @@ class News(commands.Cog):
 
         value = (
             f"**{headline}**\n"
+            f"Source: {trusted_badge}\n"
             f"Tags: {tags}\n"
             f"Route: `#{channel}`\n"
             f"Why it matters: {why}\n"
@@ -315,12 +326,12 @@ class News(commands.Cog):
         embed.add_field(
             name="Live Auto-Posting",
             value=(
-                "MarketOps checks for new headlines automatically and routes "
+                "MarketOps checks for new trusted headlines automatically and routes "
                 "them into the matching channels. Use `!news live` to check status."
             ),
             inline=False,
         )
-        embed.set_footer(text="MarketOps v0.5.3")
+        embed.set_footer(text="MarketOps v0.5.4")
         return embed
 
     def _build_channel_map_embed(self):
@@ -331,18 +342,52 @@ class News(commands.Cog):
         )
         embed.add_field(
             name="Manual channel post",
-            value="Type `!news post` to send current headlines into the matching channels.",
+            value="Type `!news post` to send current trusted headlines into the matching channels.",
             inline=False,
         )
         embed.add_field(
             name="Automatic posting",
             value=(
-                "MarketOps also auto-checks for new headlines while the bot is running. "
+                "MarketOps auto-checks for new headlines while the bot is running. "
                 "It skips headlines it has already seen."
             ),
             inline=False,
         )
-        embed.set_footer(text="MarketOps v0.5.3")
+        embed.set_footer(text="MarketOps v0.5.4")
+        return embed
+
+    def _build_sources_embed(self):
+        embed = discord.Embed(
+            title="✅ MarketOps News Source Policy",
+            description=self.news.source_policy(),
+            color=discord.Color.green(),
+        )
+        embed.add_field(
+            name="Default Source Mode",
+            value=(
+                "Reuters-only is ON by default. CNBC/Yahoo are not used unless you turn on "
+                "extra sources in `.env`."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Reliability Rule",
+            value=(
+                "MarketOps only posts what it fetches from trusted RSS/search feeds. "
+                "It does not make up headlines. If no matching trusted headline exists, it says so."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Optional .env Settings",
+            value=(
+                "`NEWS_REUTERS_ONLY=true`\n"
+                "`NEWS_LOOKBACK=24h`\n"
+                "`NEWS_POLL_MINUTES=10`"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="MarketOps v0.5.4")
         return embed
 
     async def _build_debug_embed(self):
@@ -354,24 +399,29 @@ class News(commands.Cog):
 
         embed = discord.Embed(
             title="🧪 MarketOps News Debug",
-            description="Shows how many current headlines MarketOps found for each route.",
+            description="Shows how many trusted current headlines MarketOps found for each route.",
             color=discord.Color.gold(),
         )
         embed.add_field(
             name="Counts by Channel",
-            value=self._format_counts(counts) or "No headlines found.",
+            value=self._format_counts(counts) or "No trusted headlines found.",
+            inline=False,
+        )
+        embed.add_field(
+            name="Source Policy",
+            value=report.get("source_policy", self.news.source_policy()),
             inline=False,
         )
         embed.add_field(
             name="What this means",
             value=(
-                "If only one channel has headlines, the current RSS batch is limited. "
-                "Use `!news post` to route what is available, or check a specific category like `!news geo`."
+                "If a channel shows 0, MarketOps did not find a current trusted Reuters headline "
+                "for that category. It will not route unrelated stories just to fill the channel."
             ),
             inline=False,
         )
         embed.set_footer(
-            text=f'Updated {report.get("updated", "Unknown")} • MarketOps v0.5.3'
+            text=f'Updated {report.get("updated", "Unknown")} • MarketOps v0.5.4'
         )
         return embed
 
@@ -380,7 +430,7 @@ class News(commands.Cog):
 
         embed = discord.Embed(
             title="🟢 MarketOps Live News Monitor",
-            description="Automatic news routing status.",
+            description="Automatic trusted news routing status.",
             color=discord.Color.green() if self.auto_post_enabled else discord.Color.red(),
         )
         embed.add_field(
@@ -399,6 +449,11 @@ class News(commands.Cog):
             inline=True,
         )
         embed.add_field(
+            name="Source Policy",
+            value=self.news.source_policy(),
+            inline=False,
+        )
+        embed.add_field(
             name="Channel Routing",
             value=self.news.channel_map_text(),
             inline=False,
@@ -407,11 +462,11 @@ class News(commands.Cog):
             name="Note",
             value=(
                 "On first run, MarketOps seeds current headlines so it does not spam old news. "
-                "After that, new headlines are routed automatically."
+                "After that, new trusted headlines are routed automatically."
             ),
             inline=False,
         )
-        embed.set_footer(text="MarketOps v0.5.3")
+        embed.set_footer(text="MarketOps v0.5.4")
         return embed
 
     def _format_counts(self, counts):
@@ -452,8 +507,6 @@ class News(commands.Cog):
             "market": "📊 Broad Market News",
             "breaking-news": "🚨 Breaking News",
             "ai-news": "🤖 AI / Tech News",
-            "fed": "🏦 Fed / Rates News",
-            "geopolitics": "🛢 Oil / Geopolitics News",
         }
 
         return titles.get(category, f"📰 MarketOps News — {category}")
