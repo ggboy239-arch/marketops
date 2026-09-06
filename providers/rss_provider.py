@@ -23,6 +23,8 @@ class RSSProvider:
     REUTERS_ENV_FEEDS = [
         ("Reuters Markets", "REUTERS_MARKETS_RSS", "📊 Broad Market"),
         ("Reuters Business", "REUTERS_BUSINESS_RSS", "📊 Broad Market"),
+        ("Reuters General", "REUTERS_GENERAL_RSS", "🗞 General News"),
+        ("Reuters US", "REUTERS_US_RSS", "🗞 General News"),
         ("Reuters Technology", "REUTERS_TECH_RSS", "🤖 AI / Tech"),
         ("Reuters World", "REUTERS_WORLD_RSS", "🛢 Oil / Geopolitics"),
         ("Reuters Crypto", "REUTERS_CRYPTO_RSS", "₿ Crypto"),
@@ -34,6 +36,11 @@ class RSSProvider:
             "name": "Reuters Markets",
             "query": 'site:reuters.com/markets (stocks OR futures OR "Wall Street" OR Nasdaq OR "S&P 500" OR "global markets")',
             "category_hint": "📊 Broad Market",
+        },
+        {
+            "name": "Reuters General News",
+            "query": 'site:reuters.com ("White House" OR Congress OR "Supreme Court" OR election OR cyberattack OR hurricane OR wildfire OR immigration OR border OR protest OR strike OR "national emergency")',
+            "category_hint": "🗞 General News",
         },
         {
             "name": "Reuters AI / Tech",
@@ -80,7 +87,7 @@ class RSSProvider:
         self.lookback = os.getenv("NEWS_LOOKBACK", "1h")
         self.feeds = feeds or self._load_feeds()
         self.headers = {
-            "User-Agent": "MarketOps/0.6.2 (near-live trusted market news monitor)",
+            "User-Agent": "MarketOps/0.6.3 (near-live trusted market news monitor)",
         }
 
     def get_latest_news(self, limit=10):
