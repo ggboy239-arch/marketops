@@ -12,7 +12,7 @@ from discord.ext import commands, tasks
 from market.news_engine import NewsEngine
 
 
-VERSION = "MarketOps v0.6.1"
+VERSION = "MarketOps v0.6.2"
 
 
 class News(commands.Cog):
