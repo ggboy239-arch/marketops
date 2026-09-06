@@ -3,11 +3,12 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from providers.finlight_provider import FinlightProvider
 from providers.rss_provider import RSSProvider
 
 
 class NewsEngine:
-    """Turns trusted RSS headlines into market-aware news cards.
+    """Turns trusted headlines into market-aware news cards.
 
     Provider job: fetch and verify headlines.
     Engine job: classify headlines, explain why they matter, choose what to watch,
@@ -147,12 +148,16 @@ class NewsEngine:
     ]
 
     def __init__(self):
-        self.provider = RSSProvider()
-        # Default is 30 minutes. This is the freshness filter, not the poll delay.
-        self.max_age_hours = float(os.getenv("NEWS_MAX_AGE_HOURS", "0.5"))
+        self.finlight_provider = FinlightProvider()
+        self.rss_provider = RSSProvider()
+        self.fallback_to_rss = self._env_bool("NEWS_FALLBACK_RSS", default=True)
+        # Default is 15 minutes. This is the freshness filter, not the poll delay.
+        self.max_age_hours = float(os.getenv("NEWS_MAX_AGE_HOURS", "0.25"))
+        self.active_provider_name = "Finlight" if self.finlight_provider.enabled else "Reuters RSS"
+        self.last_provider_used = "Not checked yet"
 
     def get_top_news(self, limit=5, category="all"):
-        raw_items = self.provider.get_latest_news(limit=50)
+        raw_items = self._get_raw_items(limit=50)
         classified_items = [self._classify(item) for item in raw_items]
         classified_items = [item for item in classified_items if self._is_fresh(item)]
 
@@ -169,12 +174,13 @@ class NewsEngine:
             "category": category or "all",
             "tag_filter": tag_filter,
             "updated": self._timestamp(),
-            "source_policy": self.provider.source_policy(),
+            "source_policy": self.source_policy(),
             "freshness_policy": self.freshness_policy(),
+            "provider_used": self.last_provider_used,
         }
 
     def get_channel_reports(self, limit_per_channel=3):
-        raw_items = self.provider.get_latest_news(limit=75)
+        raw_items = self._get_raw_items(limit=75)
         classified_items = [self._classify(item) for item in raw_items]
         classified_items = [item for item in classified_items if self._is_fresh(item)]
         classified_items.sort(key=lambda item: item["importance_score"], reverse=True)
@@ -194,8 +200,9 @@ class NewsEngine:
             "channels": reports,
             "counts": {channel: len(items) for channel, items in reports.items()},
             "updated": self._timestamp(),
-            "source_policy": self.provider.source_policy(),
+            "source_policy": self.source_policy(),
             "freshness_policy": self.freshness_policy(),
+            "provider_used": self.last_provider_used,
         }
 
     def channel_map_text(self):
@@ -207,7 +214,16 @@ class NewsEngine:
         return "\n".join(lines)
 
     def source_policy(self):
-        return self.provider.source_policy()
+        if self.finlight_provider.enabled:
+            return (
+                "Finlight mode is ON. MarketOps checks Finlight REST for fresher trusted financial news. "
+                "If Finlight returns nothing and NEWS_FALLBACK_RSS=true, it falls back to Reuters-focused RSS."
+            )
+
+        return (
+            "Finlight is OFF because FINLIGHT_API_KEY is missing. "
+            "MarketOps is using Reuters-focused RSS fallback."
+        )
 
     def freshness_policy(self):
         max_minutes = round(self.max_age_hours * 60)
@@ -238,6 +254,22 @@ class NewsEngine:
             "• `!news post` — post fresh headlines into the matching channels"
         )
 
+    def _get_raw_items(self, limit):
+        if self.finlight_provider.enabled:
+            items = self.finlight_provider.get_latest_news(limit=limit)
+
+            if items:
+                self.last_provider_used = "Finlight REST"
+                return items
+
+            if not self.fallback_to_rss:
+                self.last_provider_used = "Finlight REST (no fresh articles returned)"
+                return []
+
+        items = self.rss_provider.get_latest_news(limit=limit)
+        self.last_provider_used = "Reuters RSS fallback"
+        return items
+
     def _classify(self, item):
         title_text = self._normalize_text(item.get("title", ""))
         tags = []
@@ -261,14 +293,18 @@ class NewsEngine:
         primary_tag = self._primary_tag(tags)
         channel = self.CHANNEL_MAP.get(primary_tag, "breaking-news")
 
-        if item.get("source", "").lower().startswith("reuters"):
+        source = item.get("source", "")
+        provider = item.get("provider", "RSS")
+        if provider == "Finlight":
+            score += 1
+        if "reuters" in source.lower():
             score += 1
 
         published_dt = item.get("published_dt")
         importance = self._importance(score)
 
         return {
-            "source": item.get("source", "Unknown"),
+            "source": source or provider or "Unknown",
             "title": item.get("title", "Untitled"),
             "link": item.get("link", ""),
             "summary": item.get("summary", ""),
@@ -285,6 +321,7 @@ class NewsEngine:
             "why_it_matters": self._why_it_matters(tags),
             "watch": self._watch(tags),
             "trusted": item.get("trusted", False),
+            "provider": provider,
         }
 
     def _is_fresh(self, item):
@@ -442,6 +479,14 @@ class NewsEngine:
 
         except Exception:
             return None
+
+    def _env_bool(self, name, default=False):
+        value = os.getenv(name)
+
+        if value is None:
+            return default
+
+        return value.strip().lower() in ("1", "true", "yes", "y", "on")
 
     def _timestamp(self):
         now = datetime.now(ZoneInfo("America/Los_Angeles"))
