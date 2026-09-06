@@ -9,6 +9,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Runtime State
+data/seen_news.json
+
 # VS Code
 .vscode/
 
