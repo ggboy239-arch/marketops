@@ -12,6 +12,9 @@ from discord.ext import commands, tasks
 from market.news_engine import NewsEngine
 
 
+VERSION = "MarketOps v0.6"
+
+
 class News(commands.Cog):
 
     def __init__(self, bot):
@@ -26,6 +29,7 @@ class News(commands.Cog):
         self._last_auto_post = "Not posted yet"
         self._last_auto_post_count = 0
         self._last_counts = {}
+        self._last_provider_used = "Not checked yet"
 
         if self.auto_post_enabled and not self.auto_news_loop.is_running():
             self.auto_news_loop.start()
@@ -38,9 +42,7 @@ class News(commands.Cog):
         name="news",
         description="View top trusted market-moving headlines.",
     )
-    @app_commands.describe(
-        category="Choose a news category."
-    )
+    @app_commands.describe(category="Choose a news category.")
     @app_commands.choices(
         category=[
             app_commands.Choice(name="all", value="all"),
@@ -102,7 +104,7 @@ class News(commands.Cog):
                 await ctx.send(embed=self._build_channel_map_embed())
                 return
 
-            if category in ("sources", "source", "reuters"):
+            if category in ("sources", "source", "reuters", "finlight"):
                 await ctx.send(embed=self._build_sources_embed())
                 return
 
@@ -132,7 +134,7 @@ class News(commands.Cog):
                 "⚠️ MarketOps had trouble building the news report. Check the terminal for the error."
             )
 
-    @tasks.loop(minutes=1)
+    @tasks.loop(seconds=15)
     async def auto_news_loop(self):
         await self.bot.wait_until_ready()
 
@@ -151,6 +153,7 @@ class News(commands.Cog):
             )
             self._last_check = report.get("updated", "Unknown")
             self._last_counts = report.get("counts", {})
+            self._last_provider_used = report.get("provider_used", "Unknown")
 
             all_items = self._all_report_items(report)
 
@@ -199,6 +202,7 @@ class News(commands.Cog):
         )
         self._last_check = report.get("updated", "Unknown")
         self._last_counts = report.get("counts", {})
+        self._last_provider_used = report.get("provider_used", "Unknown")
 
         posted_count, missing_channels = await self._send_channel_report(
             guild=ctx.guild,
@@ -254,6 +258,7 @@ class News(commands.Cog):
                     "updated": report.get("updated", "Unknown"),
                     "source_policy": report.get("source_policy", "Trusted source mode."),
                     "freshness_policy": report.get("freshness_policy", "Fresh headlines only."),
+                    "provider_used": report.get("provider_used", "Unknown"),
                 }
             )
             await channel.send(embed=embed)
@@ -266,7 +271,7 @@ class News(commands.Cog):
 
         embed = discord.Embed(
             title=self._title_for_category(category),
-            description="Fresh Reuters-focused headlines with market impact notes.",
+            description="Fresh trusted headlines with market impact notes.",
             color=discord.Color.blue(),
         )
 
@@ -289,7 +294,12 @@ class News(commands.Cog):
                     inline=False,
                 )
 
-        embed.set_footer(text=f'Checked {report.get("updated", "Unknown")} • MarketOps v0.5.6')
+        embed.set_footer(
+            text=(
+                f'Checked {report.get("updated", "Unknown")} • '
+                f'Provider: {report.get("provider_used", "Unknown")} • {VERSION}'
+            )
+        )
         return embed
 
     def _format_item(self, item):
@@ -301,13 +311,14 @@ class News(commands.Cog):
         watch = item.get("watch", "Market reaction")
         published_label = item.get("published_label", "Unknown")
         age_label = item.get("age_label", "Unknown")
+        provider = item.get("provider", "Unknown")
         trusted_badge = "✅ Trusted" if item.get("trusted") else "⚠️ Unverified"
 
         headline = f"[{title}]({link})" if link else title
 
         value = (
             f"**{headline}**\n"
-            f"Source: {trusted_badge}\n"
+            f"Source: {trusted_badge} • Provider: **{provider}**\n"
             f"Published: **{published_label}** ({age_label})\n"
             f"Tags: {tags}\n"
             f"Route: `#{channel}`\n"
@@ -329,12 +340,12 @@ class News(commands.Cog):
         embed.add_field(
             name="Live Auto-Posting",
             value=(
-                "MarketOps checks every minute for fresh trusted headlines and routes them into the matching channels. "
+                "MarketOps checks frequently for fresh trusted headlines and routes them into the matching channels. "
                 "Use `!news live` to check status."
             ),
             inline=False,
         )
-        embed.set_footer(text="MarketOps v0.5.6")
+        embed.set_footer(text=VERSION)
         return embed
 
     def _build_channel_map_embed(self):
@@ -348,7 +359,7 @@ class News(commands.Cog):
             value="Type `!news post` to send current fresh trusted headlines into the matching channels.",
             inline=False,
         )
-        embed.set_footer(text="MarketOps v0.5.6")
+        embed.set_footer(text=VERSION)
         return embed
 
     def _build_sources_embed(self):
@@ -361,22 +372,22 @@ class News(commands.Cog):
         embed.add_field(
             name="Important Reality",
             value=(
-                "This is near-live RSS/search monitoring, not a paid wire terminal. "
-                "MarketOps can post only after the trusted feed exposes the headline."
+                "Finlight REST can be fresher than RSS, but true instant breaking news requires "
+                "a push feed such as WebSocket or webhook access."
             ),
             inline=False,
         )
         embed.add_field(
             name="Recommended .env Settings",
             value=(
-                "`NEWS_REUTERS_ONLY=true`\n"
-                "`NEWS_LOOKBACK=1h`\n"
-                "`NEWS_MAX_AGE_HOURS=0.5`\n"
-                "`NEWS_POLL_MINUTES=1`"
+                "`FINLIGHT_API_KEY=your_key_here`\n"
+                "`NEWS_MAX_AGE_HOURS=0.25`\n"
+                "`NEWS_POLL_MINUTES=1`\n"
+                "`NEWS_FALLBACK_RSS=true`"
             ),
             inline=False,
         )
-        embed.set_footer(text="MarketOps v0.5.6")
+        embed.set_footer(text=VERSION)
         return embed
 
     async def _build_debug_embed(self):
@@ -384,17 +395,31 @@ class News(commands.Cog):
         counts = report.get("counts", {})
         self._last_check = report.get("updated", "Unknown")
         self._last_counts = counts
+        self._last_provider_used = report.get("provider_used", "Unknown")
 
         embed = discord.Embed(
             title="🧪 MarketOps News Debug",
             description="Shows how many fresh trusted headlines MarketOps found for each route.",
             color=discord.Color.gold(),
         )
-        embed.add_field(name="Counts by Channel", value=self._format_counts(counts) or "No fresh trusted headlines found.", inline=False)
+        embed.add_field(
+            name="Counts by Channel",
+            value=self._format_counts(counts) or "No fresh trusted headlines found.",
+            inline=False,
+        )
         embed.add_field(name="Last Feed Check", value=self._last_check, inline=True)
-        embed.add_field(name="Source Policy", value=report.get("source_policy", self.news.source_policy()), inline=False)
-        embed.add_field(name="Freshness Policy", value=report.get("freshness_policy", self.news.freshness_policy()), inline=False)
-        embed.set_footer(text=f'Checked {report.get("updated", "Unknown")} • MarketOps v0.5.6')
+        embed.add_field(name="Provider Used", value=self._last_provider_used, inline=True)
+        embed.add_field(
+            name="Source Policy",
+            value=report.get("source_policy", self.news.source_policy()),
+            inline=False,
+        )
+        embed.add_field(
+            name="Freshness Policy",
+            value=report.get("freshness_policy", self.news.freshness_policy()),
+            inline=False,
+        )
+        embed.set_footer(text=f'Checked {report.get("updated", "Unknown")} • {VERSION}')
         return embed
 
     def _build_live_status_embed(self):
@@ -409,10 +434,19 @@ class News(commands.Cog):
         embed.add_field(name="Poll Rate", value=f"Every **{self.poll_minutes:g} minute(s)**", inline=True)
         embed.add_field(name="Seen Headlines", value=f"**{len(self.seen_news)}** tracked", inline=True)
         embed.add_field(name="Last Feed Check", value=self._last_check, inline=True)
-        embed.add_field(name="Last Auto Post", value=f"{self._last_auto_post} ({self._last_auto_post_count} channel updates)", inline=True)
-        embed.add_field(name="Current Counts", value=self._format_counts(self._last_counts) or "No check completed yet.", inline=False)
+        embed.add_field(name="Provider Used", value=self._last_provider_used, inline=True)
+        embed.add_field(
+            name="Last Auto Post",
+            value=f"{self._last_auto_post} ({self._last_auto_post_count} channel updates)",
+            inline=True,
+        )
+        embed.add_field(
+            name="Current Counts",
+            value=self._format_counts(self._last_counts) or "No check completed yet.",
+            inline=False,
+        )
         embed.add_field(name="Freshness Policy", value=self.news.freshness_policy(), inline=False)
-        embed.set_footer(text="MarketOps v0.5.6")
+        embed.set_footer(text=VERSION)
         return embed
 
     def _format_counts(self, counts):
@@ -447,6 +481,9 @@ class News(commands.Cog):
             "market": "📊 Broad Market News",
             "breaking-news": "🚨 Breaking News",
             "ai-news": "🤖 AI / Tech News",
+            "fed": "🏦 Fed / Rates News",
+            "geopolitics": "🛢 Oil / Geopolitics News",
+            "crypto": "₿ Crypto News",
         }
 
         return titles.get(category, f"📰 MarketOps News — {category}")
