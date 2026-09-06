@@ -12,7 +12,7 @@ from discord.ext import commands, tasks
 from market.news_engine import NewsEngine
 
 
-VERSION = "MarketOps v0.6"
+VERSION = "MarketOps v0.6.1"
 
 
 class News(commands.Cog):
@@ -303,7 +303,7 @@ class News(commands.Cog):
         return embed
 
     def _format_item(self, item):
-        title = item.get("title", "Untitled")
+        title = discord.utils.escape_markdown(item.get("title", "Untitled"))
         link = item.get("link", "")
         tags = ", ".join(item.get("tags", []))
         channel = item.get("channel", "breaking-news")
@@ -314,10 +314,11 @@ class News(commands.Cog):
         provider = item.get("provider", "Unknown")
         trusted_badge = "✅ Trusted" if item.get("trusted") else "⚠️ Unverified"
 
-        headline = f"[{title}]({link})" if link else title
+        read_line = f"Open: [Read full article]({link})\n" if link else ""
 
         value = (
-            f"**{headline}**\n"
+            f"Headline: **{title}**\n"
+            f"{read_line}"
             f"Source: {trusted_badge} • Provider: **{provider}**\n"
             f"Published: **{published_label}** ({age_label})\n"
             f"Tags: {tags}\n"
