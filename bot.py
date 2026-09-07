@@ -76,6 +76,14 @@ PRIVATE_CHART_COMMANDS = ["mychart", "privatechart", "dmchart"]
 
 CANDLE_LEARNING_COMMANDS = ["candles", "candlehelp", "ohlc"]
 
+SOCIAL_COMMANDS = [
+    "social", "socialstatus", "xstatus",
+    "xnews", "xposts", "twitternews",
+    "videonews", "videos", "newsvideos",
+    "trending", "trendnews", "socialnews",
+    "socialpost", "xpost", "videopost",
+]
+
 COMMAND_CHANNELS = {
     "status": ["bot-status"],
     "market": ["market-dashboard"],
@@ -92,6 +100,7 @@ COMMAND_CHANNELS = {
     **{command: ["market-charts"] for command in PUBLIC_CHART_COMMANDS},
     **{command: ["market-charts", "watchlist"] for command in PRIVATE_CHART_COMMANDS},
     **{command: ["market-school", "market-charts"] for command in CANDLE_LEARNING_COMMANDS},
+    **{command: ["x-news", "video-news", "trending-news", "general-news"] for command in SOCIAL_COMMANDS},
     "ticketpanel": ["marketops-commands", "admin-keys"],
     "closeticket": ["admin-keys"],
     "close": ["admin-keys"],
@@ -115,6 +124,8 @@ def _clean_channel_name(channel_name):
     🔒-owner-audit -> owner-audit
     🗓-market-calendar -> market-calendar
     📈-market-charts -> market-charts
+    𝕏-x-news -> x-news
+    🎥 | video-news -> video-news
     marketops-commands -> marketops-commands
     """
     cleaned = (channel_name or "").strip().lower()
@@ -211,6 +222,7 @@ async def load():
     await bot.load_extension("cogs.coach")
     await bot.load_extension("cogs.explain")
     await bot.load_extension("cogs.news")
+    await bot.load_extension("cogs.social")
     await bot.load_extension("cogs.brief")
     await bot.load_extension("cogs.watchlist")
     await bot.load_extension("cogs.learn")
