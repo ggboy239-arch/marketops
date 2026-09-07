@@ -13,250 +13,104 @@ class NewsEngine:
     """Turns headlines into MarketOps news cards."""
 
     AI_PURE_KEYWORDS = [
-        "ai",
-        "artificial intelligence",
-        "openai",
-        "chatgpt",
-        "machine learning",
-        "semiconductor",
-        "semiconductors",
-        "chip",
-        "chips",
-        "gpu",
-        "data center",
-        "data centers",
-        "groq",
+        "ai", "artificial intelligence", "openai", "chatgpt", "machine learning",
+        "semiconductor", "semiconductors", "chip", "chips", "gpu",
+        "data center", "data centers", "groq",
     ]
 
     AI_COMPANIES = [
-        "nvidia",
-        "nvda",
-        "amd",
-        "microsoft",
-        "msft",
-        "amazon",
-        "amzn",
-        "apple",
-        "aapl",
-        "google",
-        "googl",
-        "alphabet",
-        "meta",
+        "nvidia", "nvda", "amd", "microsoft", "msft", "amazon", "amzn",
+        "apple", "aapl", "google", "googl", "alphabet", "meta",
     ]
 
     AI_CONTEXT_KEYWORDS = [
-        "ai",
-        "artificial intelligence",
-        "chip",
-        "chips",
-        "semiconductor",
-        "gpu",
-        "data center",
-        "data centers",
-        "cloud",
-        "racks",
-        "openai",
-        "groq",
+        "ai", "artificial intelligence", "chip", "chips", "semiconductor", "gpu",
+        "data center", "data centers", "cloud", "racks", "openai", "groq",
     ]
 
     FED_RATES_KEYWORDS = [
-        "fed",
-        "federal reserve",
-        "powell",
-        "rate hike",
-        "rate cut",
-        "rates",
-        "yield",
-        "yields",
-        "treasury",
-        "treasuries",
-        "inflation",
-        "cpi",
-        "ppi",
-        "jobs report",
-        "payroll",
-        "payrolls",
-        "gdp",
+        "fed", "federal reserve", "powell", "rate hike", "rate cut", "rates",
+        "yield", "yields", "treasury", "treasuries", "inflation", "cpi", "ppi",
+        "pce", "jobs report", "payroll", "payrolls", "gdp", "unemployment",
+        "jobless claims", "consumer prices", "producer prices", "bond yields",
+        "treasury yields", "fomc", "monetary policy",
     ]
 
     GEO_STRONG_KEYWORDS = [
-        "oil",
-        "crude",
-        "brent",
-        "wti",
-        "opec",
-        "iran",
-        "israel",
-        "gaza",
-        "west bank",
-        "netanyahu",
-        "hezbollah",
-        "lebanon",
-        "hormuz",
-        "middle east",
-        "russia",
-        "ukraine",
-        "kyiv",
-        "taiwan",
-        "north korea",
-        "nato",
-        "war",
-        "sanctions",
-        "missile",
-        "attack",
-        "ceasefire",
+        "oil", "crude", "brent", "wti", "opec", "iran", "israel", "gaza",
+        "west bank", "netanyahu", "hezbollah", "lebanon", "hormuz",
+        "middle east", "russia", "ukraine", "kyiv", "taiwan", "north korea",
+        "nato", "war", "sanctions", "missile", "attack", "ceasefire",
+        "tariff", "tariffs", "trade war", "export controls", "china",
+        "beijing", "south china sea", "red sea", "shipping lane",
     ]
 
     CHINA_CONTEXT_KEYWORDS = [
-        "tariff",
-        "tariffs",
-        "trade",
-        "exports",
-        "export controls",
-        "sanctions",
-        "taiwan",
-        "military",
-        "economy",
-        "economic",
-        "markets",
-        "stocks",
-        "shares",
-        "chips",
-        "semiconductor",
+        "tariff", "tariffs", "trade", "exports", "export controls", "sanctions",
+        "taiwan", "military", "economy", "economic", "markets", "stocks",
+        "shares", "chips", "semiconductor", "rare earth", "supply chain",
     ]
 
     CRYPTO_KEYWORDS = [
-        "bitcoin",
-        "btc",
-        "crypto",
-        "cryptocurrency",
-        "ethereum",
-        "ether",
-        "coinbase",
-        "spot bitcoin etf",
-        "bitcoin etf",
-        "ethereum etf",
-        "ether etf",
-        "crypto etf",
+        "bitcoin", "btc", "crypto", "cryptocurrency", "ethereum", "ether",
+        "coinbase", "spot bitcoin etf", "bitcoin etf", "ethereum etf",
+        "ether etf", "crypto etf",
     ]
 
     BROAD_MARKET_KEYWORDS = [
-        "stocks",
-        "shares",
-        "wall street",
-        "s&p",
-        "s&p 500",
-        "nasdaq",
-        "dow",
-        "futures",
-        "global markets",
-        "investors",
-        "markets",
-        "market wrap",
+        "stocks", "shares", "wall street", "s&p", "s&p 500", "nasdaq", "dow",
+        "futures", "global markets", "investors", "markets", "market wrap",
+        "selloff", "sell-off", "rally", "risk appetite", "risk assets",
+        "bond market", "dollar", "gold", "oil prices",
     ]
 
     GENERAL_NEWS_KEYWORDS = [
-        "white house",
-        "congress",
-        "senate",
-        "house votes",
-        "supreme court",
-        "court",
-        "judge",
-        "lawsuit",
-        "president",
-        "administration",
-        "government shutdown",
-        "national emergency",
-        "cyberattack",
-        "cyber attack",
-        "data breach",
-        "election",
-        "vote",
-        "immigration",
-        "border",
-        "protest",
-        "strike",
-        "hurricane",
-        "wildfire",
-        "earthquake",
-        "public health",
-        "fema",
-        "national guard",
-        "boeing",
-        "runway",
-        "aircraft",
-        "airport",
-        "amazon prime air",
+        "white house", "congress", "senate", "house votes", "supreme court",
+        "court", "judge", "lawsuit", "president", "administration",
+        "government shutdown", "national emergency", "cyberattack",
+        "cyber attack", "ransomware", "data breach", "election", "vote",
+        "immigration", "border", "protest", "strike", "hurricane",
+        "wildfire", "earthquake", "public health", "fema", "national guard",
+        "boeing", "runway", "aircraft", "airport", "amazon prime air",
+        "antitrust", "anti-trust", "regulation", "regulator", "doj",
+        "department of justice", "ftc", "sec", "fda", "recall", "probe",
+        "investigation", "indictment", "charges", "settlement", "fine",
+        "bank", "banking", "bank failure", "bankruptcy", "credit stress",
+        "debt ceiling", "budget", "federal budget", "supply chain",
+        "port", "ports", "rail", "railroad", "union", "labor", "factory",
+        "plant", "shutdown", "outage", "power outage", "grid",
+        "pentagon", "defense contract", "contract award", "medicaid",
+        "medicare", "visa", "tariff", "tariffs", "trade", "sanctions",
     ]
 
     COMPANY_GENERAL_KEYWORDS = [
-        "amazon",
-        "amzn",
-        "boeing",
-        "ba",
-        "apple",
-        "aapl",
-        "microsoft",
-        "msft",
-        "google",
-        "alphabet",
-        "meta",
+        "amazon", "amzn", "boeing", "ba", "apple", "aapl", "microsoft",
+        "msft", "google", "alphabet", "meta", "tesla", "tsla", "walmart",
+        "target", "costco", "lockheed", "lmt", "rtx", "exxon", "xom",
+        "chevron", "cvx", "tyson", "tsn",
     ]
 
     IRRELEVANT_KEYWORDS = [
-        "world cup",
-        "soccer",
-        "football",
-        "basketball",
-        "baseball",
-        "tennis",
-        "golf",
-        "cricket",
-        "rugby",
-        "fifa",
-        "uefa",
-        "nba",
-        "nfl",
-        "mlb",
-        "nhl",
-        "olympics",
-        "olympic",
-        "tournament",
-        "match",
-        "us open",
-        "honey deuce",
-        "court after 20 years",
-        "movie",
-        "film",
-        "celebrity",
-        "music",
-        "fashion",
-        "recipe",
+        "world cup", "soccer", "football", "basketball", "baseball", "tennis",
+        "golf", "cricket", "rugby", "fifa", "uefa", "nba", "nfl", "mlb",
+        "nhl", "olympics", "olympic", "tournament", "match", "us open",
+        "honey deuce", "court after 20 years", "movie", "film", "celebrity",
+        "music", "fashion", "recipe",
     ]
 
     OVERRIDE_KEEP_KEYWORDS = [
-        "stocks",
-        "shares",
-        "market",
-        "markets",
-        "futures",
-        "oil",
-        "crude",
-        "fed",
-        "inflation",
-        "rate",
-        "rates",
-        "yield",
-        "treasury",
-        "war",
-        "attack",
-        "sanctions",
-        "tariff",
-        "ceasefire",
-        "missile",
-        "cyberattack",
-        "cyber attack",
+        "stocks", "shares", "market", "markets", "futures", "oil", "crude",
+        "fed", "inflation", "rate", "rates", "yield", "treasury", "war",
+        "attack", "sanctions", "tariff", "tariffs", "ceasefire", "missile",
+        "cyberattack", "cyber attack", "strike", "lawsuit", "regulation",
+        "antitrust", "supply chain", "bank", "banking",
+    ]
+
+    MAJOR_GENERAL_BOOST_KEYWORDS = [
+        "white house", "president", "congress", "supreme court", "tariff",
+        "tariffs", "sanctions", "cyberattack", "ransomware", "data breach",
+        "strike", "shutdown", "supply chain", "antitrust", "doj", "ftc",
+        "sec", "recall", "bank failure", "defense contract", "oil",
     ]
 
     CATEGORY_ALIASES = {
@@ -265,6 +119,7 @@ class NewsEngine:
         "markets": "📊 Broad Market",
         "broad": "📊 Broad Market",
         "breaking": "📊 Broad Market",
+        "major": None,
         "ai": "🤖 AI / Tech",
         "tech": "🤖 AI / Tech",
         "fed": "🏦 Fed / Rates",
@@ -279,6 +134,8 @@ class NewsEngine:
         "national": "🗞 General News",
         "nationwide": "🗞 General News",
         "world": "🗞 General News",
+        "usa": "🗞 General News",
+        "us": "🗞 General News",
         "reddit": "🧵 Reddit Hot",
         "reddits": "🧵 Reddit Hot",
         "reddit-hot": "🧵 Reddit Hot",
@@ -323,11 +180,11 @@ class NewsEngine:
         self.fallback_to_rss = self._env_bool("NEWS_FALLBACK_RSS", default=True)
         self.use_finlight = self._env_bool("NEWS_USE_FINLIGHT", default=False)
         self.include_reddit = self._env_bool("REDDIT_ENABLED", default=True)
-        self.max_age_hours = float(os.getenv("NEWS_MAX_AGE_HOURS", "0.25"))
+        self.max_age_hours = float(os.getenv("NEWS_MAX_AGE_HOURS", "1"))
         self.last_provider_used = "Not checked yet"
 
     def get_top_news(self, limit=5, category="all"):
-        raw_items = self._get_raw_items(limit=50, category=category)
+        raw_items = self._get_raw_items(limit=60, category=category)
         classified_items = self._classify_items(raw_items)
         classified_items = [item for item in classified_items if self._is_fresh(item)]
 
@@ -348,7 +205,7 @@ class NewsEngine:
         }
 
     def get_channel_reports(self, limit_per_channel=3):
-        raw_items = self._get_raw_items(limit=75, category="all")
+        raw_items = self._get_raw_items(limit=100, category="all")
         classified_items = self._classify_items(raw_items)
         classified_items = [item for item in classified_items if self._is_fresh(item)]
         classified_items.sort(key=lambda item: item["importance_score"], reverse=True)
@@ -377,9 +234,11 @@ class NewsEngine:
             parts.append("Marketaux mode is ON. MarketOps checks Marketaux first for free market-news API coverage.")
             parts.append(self.marketaux_provider.source_policy())
         else:
-            parts.append("Marketaux is OFF because MARKETAUX_API_KEY is missing.")
+            parts.append("Marketaux is OFF because MARKETAUX_API_KEY is missing or disabled.")
         if self.fallback_to_rss:
-            parts.append("Reuters-focused RSS fallback is ON.")
+            parts.append("Reuters RSS/search is ON.")
+            parts.append("Major-source RSS/search is ON by default for AP, NPR, CNBC, BBC, and Yahoo Finance as second data points.")
+            parts.append(self.rss_provider.source_policy())
         if self.include_reddit:
             parts.append("Reddit RSS monitor is ON and routes chatter to #reddit-hot only.")
         return " ".join(parts)
@@ -395,7 +254,7 @@ class NewsEngine:
             "Use one of these:\n"
             "• `!news` — all MarketOps news\n"
             "• `!news market` — market-moving / broad market\n"
-            "• `!news general` — important national/world news, not directly market-related\n"
+            "• `!news general` — important national/world news that can affect markets or companies\n"
             "• `!news ai` — AI / tech\n"
             "• `!news fed` — Fed / rates / inflation\n"
             "• `!news geo` — oil / geopolitics\n"
@@ -433,7 +292,7 @@ class NewsEngine:
             rss_items = self.rss_provider.get_latest_news(limit=limit)
             if rss_items:
                 items.extend(rss_items)
-                used.append("Reuters RSS")
+                used.append("Trusted RSS")
 
         if self.include_reddit:
             reddit_items = self.reddit_provider.get_latest_news(limit=limit)
@@ -459,6 +318,7 @@ class NewsEngine:
         title = item.get("title", "Untitled")
         title_text = self._normalize_text(title)
         provider = item.get("provider", "RSS")
+        category_hint = item.get("category_hint")
 
         if provider == "Reddit RSS":
             tags = ["🧵 Reddit Hot"]
@@ -468,6 +328,12 @@ class NewsEngine:
                 return None
 
             tags = self._detect_tags(title_text)
+
+            # Keep trusted source category hints when a headline is clearly from a target feed
+            # but the short title does not contain enough keywords.
+            if not tags and category_hint in self.CHANNEL_MAP:
+                tags.append(category_hint)
+
             if not tags:
                 return None
             primary_tag = self._primary_tag(tags)
@@ -482,7 +348,9 @@ class NewsEngine:
             score += 1
         if provider == "Reddit RSS":
             score = 1
-        if "reuters" in source.lower():
+        if any(name in source.lower() for name in ("reuters", "ap", "npr", "cnbc", "bbc", "yahoo finance")):
+            score += 1
+        if self._matches_any(title_text, self.MAJOR_GENERAL_BOOST_KEYWORDS):
             score += 1
 
         published_dt = item.get("published_dt")
@@ -525,7 +393,7 @@ class NewsEngine:
         if self._matches_any(title_text, self.BROAD_MARKET_KEYWORDS):
             tags.append("📊 Broad Market")
 
-        if not tags and self._matches_any(title_text, self.GENERAL_NEWS_KEYWORDS):
+        if self._matches_any(title_text, self.GENERAL_NEWS_KEYWORDS):
             tags.append("🗞 General News")
 
         if not tags and self._matches_any(title_text, self.COMPANY_GENERAL_KEYWORDS):
@@ -618,7 +486,7 @@ class NewsEngine:
         if "🏦 Fed / Rates" in tags:
             return "Rates and inflation can move the whole market, especially tech and growth stocks."
         if "🛢 Oil / Geopolitics" in tags:
-            return "Oil and geopolitical headlines can affect inflation, energy stocks, defense, and risk appetite."
+            return "Oil, tariffs, sanctions, and geopolitical headlines can affect inflation, energy, defense, and risk appetite."
         if "🤖 AI / Tech" in tags:
             return "AI and tech headlines can drive Nasdaq futures, QQQ, NVDA, AMD, and related names."
         if "₿ Crypto" in tags:
@@ -626,7 +494,7 @@ class NewsEngine:
         if "📊 Broad Market" in tags:
             return "Broad market headlines can explain moves in S&P futures, Nasdaq futures, and VIX."
         if "🗞 General News" in tags:
-            return "This is important national/world context but not directly market-specific yet."
+            return "Major U.S./world news can affect markets through policy, regulation, lawsuits, supply chains, labor, energy, or company risk."
         return "Watch market reaction before treating this as important."
 
     def _watch(self, tags):
@@ -644,7 +512,7 @@ class NewsEngine:
         if "📊 Broad Market" in tags:
             watch.extend(["S&P Futures", "Nasdaq Futures", "VIX"])
         if "🗞 General News" in tags:
-            watch.extend(["Follow-up source", "Market reaction", "Policy impact"])
+            watch.extend(["Affected sector", "SPY/QQQ/VIX", "Follow-up source", "Policy impact"])
 
         deduped = []
         for item in watch:
