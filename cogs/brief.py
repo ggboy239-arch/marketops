@@ -10,7 +10,7 @@ from discord.ext import commands, tasks
 from market.brief_engine import BriefEngine
 
 
-VERSION = "MarketOps v2.4.2"
+VERSION = "MarketOps v2.4.3"
 PT_ZONE = ZoneInfo("America/Los_Angeles")
 
 
@@ -143,10 +143,9 @@ class Brief(commands.Cog):
             inline=False,
         )
 
-        updated = brief.get("updated", "Unknown")
         embed.set_footer(
             text=(
-                f'Updated {updated} PT • '
+                f'Updated {brief.get("updated", "Unknown")} PT • '
                 f'Providers checked: {brief.get("provider_used", "Unknown")} • {VERSION}'
             )
         )
