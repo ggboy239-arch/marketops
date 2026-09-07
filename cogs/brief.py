@@ -10,7 +10,7 @@ from discord.ext import commands, tasks
 from market.brief_engine import BriefEngine
 
 
-VERSION = "MarketOps v0.9"
+VERSION = "MarketOps v2.4"
 PT_ZONE = ZoneInfo("America/Los_Angeles")
 
 
@@ -47,7 +47,7 @@ class Brief(commands.Cog):
         try:
             brief = await asyncio.to_thread(self.brief_engine.build_brief)
             embed = self._build_brief_embed(brief)
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed, suppress_embeds=True)
         except Exception as error:
             print(f"❌ /brief error: {error}")
             await interaction.followup.send(
@@ -66,12 +66,12 @@ class Brief(commands.Cog):
             action = (action or "now").lower().strip()
 
             if action in ("schedule", "time", "times", "status"):
-                await ctx.send(embed=self._build_schedule_embed())
+                await ctx.send(embed=self._build_schedule_embed(), suppress_embeds=True)
                 return
 
             brief = await asyncio.to_thread(self.brief_engine.build_brief)
             embed = self._build_brief_embed(brief)
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, suppress_embeds=True)
         except Exception as error:
             print(f"❌ !brief error: {error}")
             await ctx.send(
@@ -104,7 +104,7 @@ class Brief(commands.Cog):
             try:
                 brief = await asyncio.to_thread(self.brief_engine.build_brief)
                 embed = self._build_brief_embed(brief)
-                await channel.send(embed=embed)
+                await channel.send(embed=embed, suppress_embeds=True)
                 print(f"🌅 Posted scheduled brief to #{self.brief_channel_name} at {current_time} PT.")
             except Exception as error:
                 print(f"❌ Scheduled brief error: {error}")
@@ -147,47 +147,22 @@ class Brief(commands.Cog):
             inline=False,
         )
 
-        embed.add_field(
-            name="📰 Top Market News",
-            value=self._format_item(top_items.get("market")),
-            inline=False,
-        )
+        sections = [
+            ("📰 Top Market News", "market", False),
+            ("🏦 Fed / Rates", "fed", False),
+            ("🛢 Geopolitics / Oil Risk", "geo", False),
+            ("🤖 AI / Tech", "ai", False),
+            ("₿ Crypto", "crypto", False),
+            ("🗞 General News", "general", False),
+            ("🧵 Reddit Chatter", "reddit", True),
+        ]
 
-        embed.add_field(
-            name="🏦 Fed / Rates",
-            value=self._format_item(top_items.get("fed")),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🛢 Geopolitics / Oil Risk",
-            value=self._format_item(top_items.get("geo")),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🤖 AI / Tech",
-            value=self._format_item(top_items.get("ai")),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="₿ Crypto",
-            value=self._format_item(top_items.get("crypto")),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🗞 General News",
-            value=self._format_item(top_items.get("general")),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🧵 Reddit Chatter",
-            value=self._format_item(top_items.get("reddit"), reddit=True),
-            inline=False,
-        )
+        for name, key, reddit in sections:
+            embed.add_field(
+                name=name,
+                value=self._format_item(top_items.get(key), reddit=reddit),
+                inline=False,
+            )
 
         embed.add_field(
             name="🎯 What To Watch",
@@ -237,16 +212,19 @@ class Brief(commands.Cog):
         source = item.get("source", "Unknown")
         age = item.get("age_label", "Unknown")
         route = item.get("channel", "unknown")
-        link = item.get("link", "")
+        link = self._clean_link(item.get("link", ""))
 
         warning = "⚠️ Reddit chatter only — verify first.\n" if reddit else ""
-        open_line = f"\n[Read item]({link})" if link else ""
+        open_line = f"\n🔗 [Open item](<{link}>)" if link else ""
 
         return (
             f"{warning}**{title}**\n"
             f"Source: {source} • Age: {age} • Route: `#{route}`"
             f"{open_line}"
         )
+
+    def _clean_link(self, link):
+        return (link or "").replace(" ", "%20").strip()
 
     def _format_reasons(self, reasons):
         if not reasons:
