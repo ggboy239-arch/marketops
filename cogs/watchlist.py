@@ -9,7 +9,7 @@ from discord.ext import commands, tasks
 from market.watchlist_engine import WatchlistEngine
 
 
-VERSION = "MarketOps v1.1"
+VERSION = "MarketOps v1.2"
 
 
 class Watchlist(commands.Cog):
@@ -142,9 +142,13 @@ class Watchlist(commands.Cog):
             value=f'Alert when a symbol moves **±{report.get("move_threshold", 3):g}%** or more.',
             inline=False,
         )
+
         embed.add_field(
             name="News Alert Rule",
-            value="Ticker/company headlines are scanned when WATCHLIST_NEWS_ALERTS=true.",
+            value=(
+                "Ticker/company headlines are scanned when WATCHLIST_NEWS_ALERTS=true.\n"
+                "News alerts now include quality labels: High Trust, Medium Trust, Low Trust, or Needs Confirmation."
+            ),
             inline=False,
         )
 
@@ -169,46 +173,59 @@ class Watchlist(commands.Cog):
         elif not alerts:
             embed.add_field(
                 name="No active alerts",
-                value=(
-                    f'No symbol moved ±{report.get("move_threshold", 3):g}% or more, '
-                    "and no fresh ticker headline was found right now."
-                ),
+                value=f'No symbol moved ±{report.get("move_threshold", 3):g}% or had a fresh matched headline right now.',
                 inline=False,
             )
         else:
             for alert in alerts[:10]:
-                if alert.get("type") == "news":
-                    embed.add_field(
-                        name=f'📰 {alert["symbol"]} News Alert',
-                        value=self._format_news_alert(alert),
-                        inline=False,
-                    )
-                else:
-                    embed.add_field(
-                        name=f'{alert["emoji"]} {alert["symbol"]} Price Alert',
-                        value=f'{alert["message"]}\nWatch: {alert["watch"]}',
-                        inline=False,
-                    )
+                embed.add_field(
+                    name=self._alert_title(alert),
+                    value=self._alert_value(alert),
+                    inline=False,
+                )
 
-        embed.add_field(
-            name="News Provider",
-            value=report.get("news_provider", "Not checked yet"),
-            inline=False,
-        )
+        if report.get("news_enabled"):
+            embed.add_field(
+                name="News Provider",
+                value=report.get("news_provider", "Not checked yet"),
+                inline=False,
+            )
+
         embed.set_footer(text=f'Checked {report.get("updated", "Unknown")} • {VERSION}')
         return embed
 
-    def _format_news_alert(self, alert):
-        link = alert.get("link", "")
-        open_line = f"\n[Read headline]({link})" if link else ""
-        return (
-            f'{alert["message"]}\n'
-            f'Source: {alert.get("source", "Unknown")} • '
-            f'Provider: {alert.get("provider", "Unknown")} • '
-            f'Age: {alert.get("age", "Unknown")}\n'
-            f'Watch: {alert["watch"]}'
-            f'{open_line}'
-        )
+    def _alert_title(self, alert):
+        alert_type = alert.get("type", "price")
+        symbol = alert.get("symbol", "Unknown")
+        emoji = alert.get("emoji", "🚨")
+
+        if alert_type == "news":
+            quality = alert.get("quality_label", "Needs Confirmation")
+            return f"{emoji} {symbol} News Alert — {quality}"
+
+        return f"{emoji} {symbol} Price Alert"
+
+    def _alert_value(self, alert):
+        alert_type = alert.get("type", "price")
+
+        if alert_type == "news":
+            source = alert.get("source", "Unknown")
+            provider = alert.get("provider", "Unknown")
+            age = alert.get("age", "Unknown")
+            quality = alert.get("quality_label", "Needs Confirmation")
+            reason = alert.get("quality_reason", "Verify before acting.")
+            link = alert.get("link", "")
+            open_line = f"\n[Read headline]({link})" if link else ""
+
+            return (
+                f'{alert.get("message", "News alert")}\n'
+                f"Trust: **{quality}** — {reason}\n"
+                f"Source: {source} • Provider: {provider} • Age: {age}\n"
+                f'Watch: {alert.get("watch", "Verify before acting.")}'
+                f"{open_line}"
+            )
+
+        return f'{alert.get("message", "Price alert")}\nWatch: {alert.get("watch", "Verify before acting.")}'
 
     def _env_bool(self, name, default=False):
         value = os.getenv(name)
