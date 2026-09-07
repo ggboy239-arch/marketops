@@ -6,7 +6,7 @@ from discord.ext import commands
 from market.market_service import MarketService
 
 
-VERSION = "MarketOps v2.1"
+VERSION = "MarketOps v2.4.4"
 
 
 class Learn(commands.Cog):
@@ -86,7 +86,7 @@ class Learn(commands.Cog):
             inline=False,
         )
 
-        embed.set_footer(text=f'Updated {dashboard.get("updated", "Unknown")} • {VERSION}')
+        embed.set_footer(text=f'Updated {dashboard.get("updated", "Unknown")} PT • {VERSION}')
         return embed
 
     def _build_playbook_embed(self):
@@ -207,12 +207,12 @@ class Learn(commands.Cog):
         if "nan" not in lower_text and "inf" not in lower_text:
             return text
 
-        cleaned = text.replace("+nan%", "+0.00%")
-        cleaned = cleaned.replace("-nan%", "+0.00%")
-        cleaned = cleaned.replace("nan%", "0.00%")
-        cleaned = cleaned.replace("+inf%", "+0.00%")
-        cleaned = cleaned.replace("-inf%", "+0.00%")
-        cleaned = cleaned.replace("inf%", "0.00%")
+        cleaned = text.replace("+nan%", "no fresh % data")
+        cleaned = cleaned.replace("-nan%", "no fresh % data")
+        cleaned = cleaned.replace("nan%", "no fresh % data")
+        cleaned = cleaned.replace("+inf%", "no fresh % data")
+        cleaned = cleaned.replace("-inf%", "no fresh % data")
+        cleaned = cleaned.replace("inf%", "no fresh % data")
         return cleaned
 
     def _explain_mood(self, score):
