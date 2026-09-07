@@ -12,15 +12,21 @@ from discord.ext import commands, tasks
 from market.news_engine import NewsEngine
 
 
-VERSION = "MarketOps v0.7.4"
+VERSION = "MarketOps v0.7.5"
 
 
 class News(commands.Cog):
+    """MarketOps news routing.
+
+    Plain English: this posts clean mobile-friendly headlines, then a compact
+    embed. It does not repeat the same "why it matters" paragraph on every item.
+    """
+
     def __init__(self, bot):
         self.bot = bot
         self.news = NewsEngine()
         self.auto_post_enabled = self._env_bool("NEWS_AUTO_POST", default=True)
-        self.poll_minutes = float(os.getenv("NEWS_POLL_MINUTES", "1"))
+        self.poll_minutes = float(os.getenv("NEWS_POLL_MINUTES", "15"))
         self.seen_file = Path("data/seen_news.json")
         self.seen_news = self._load_seen_news()
         self._last_poll = 0.0
@@ -71,7 +77,7 @@ class News(commands.Cog):
     @commands.command(name="news")
     async def news_prefix(self, ctx, category="all"):
         try:
-            category = category.lower().strip()
+            category = (category or "all").lower().strip()
 
             if category in ("help", "helps", "categories"):
                 await ctx.send(embed=self._build_help_embed())
@@ -203,23 +209,23 @@ class News(commands.Cog):
 
     def _build_news_embed(self, report):
         category = report.get("category", "all")
+        items = report.get("items", [])
         embed = discord.Embed(
             title=self._title_for_category(category),
-            description="Fresh trusted headlines and Reddit chatter routed by topic.",
+            description="Fresh routed headlines. Use the headline as a lead, then check chart reaction with `!chart`.",
             color=discord.Color.blue(),
         )
 
-        items = report.get("items", [])
         if not items:
             embed.add_field(
                 name="No fresh items found",
-                value="MarketOps did not find a matching item in the current freshness window. It will not invent news just to fill the channel.",
+                value="MarketOps did not find a matching item in the current freshness window.",
                 inline=False,
             )
         else:
             for index, item in enumerate(items, start=1):
                 embed.add_field(
-                    name=f'{index}. {item["source"]} • {item["importance"]}',
+                    name=f'{index}. {item.get("source", "News")} • {item.get("importance", "")}',
                     value=self._format_item(item),
                     inline=False,
                 )
@@ -229,24 +235,22 @@ class News(commands.Cog):
 
     def _format_item(self, item):
         title = discord.utils.escape_markdown(item.get("title", "Untitled"))
-        link = item.get("link", "")
+        link = self._clean_link(item.get("link", ""))
         tags = ", ".join(item.get("tags", []))
         channel = item.get("channel", "breaking-news")
-        why = item.get("why_it_matters", "Watch market reaction.")
         watch = item.get("watch", "Market reaction")
         provider = item.get("provider", "Unknown")
         trusted_badge = "✅ Trusted" if item.get("trusted") else "⚠️ Chatter / verify first"
-        read_line = f"Open: [Read full item]({link})\n" if link else ""
+        read_line = f"Open: [Read full item](<{link}>)\n" if link else ""
 
         value = (
-            f"Headline: **{title}**\n"
+            f"**{title}**\n"
             f"{read_line}"
             f"Source: {trusted_badge} • Provider: **{provider}**\n"
             f"Published: **{item.get('published_label', 'Unknown')}** ({item.get('age_label', 'Unknown')})\n"
             f"Tags: {tags}\n"
             f"Route: `#{channel}`\n"
-            f"Why it matters: {why}\n"
-            f"Watch: **{watch}**"
+            f"Watch next: **{watch}**"
         )
         return value[:997] + "..." if len(value) > 1000 else value
 
@@ -289,25 +293,26 @@ class News(commands.Cog):
 
     def _build_help_embed(self):
         embed = discord.Embed(title="📰 MarketOps News Help", description=self.news.category_help(), color=discord.Color.gold())
-        embed.add_field(name="Live Auto-Posting", value="MarketOps checks for fresh items and routes them into the matching channels. Use `!news live` to check status.", inline=False)
-        embed.add_field(name="Mobile Notifications", value="Auto-posts include a clean plain-text headline before the embed so Discord mobile notifications show the headline.", inline=False)
+        embed.add_field(name="Live Auto-Posting", value="MarketOps checks for fresh items and routes them into matching channels. Use `!news live` for status.", inline=False)
+        embed.add_field(name="Mobile Notifications", value="Auto-posts include a clean plain-text headline before the embed so Discord mobile shows the headline.", inline=False)
+        embed.add_field(name="Chart Step", value="After a headline posts, use `!chart SPY 1d`, `!chart QQQ 1d`, or a ticker chart to see if price confirms it.", inline=False)
         embed.set_footer(text=VERSION)
         return embed
 
     def _build_channel_map_embed(self):
         embed = discord.Embed(title="🧭 MarketOps News Channel Routing", description=self.news.channel_map_text(), color=discord.Color.gold())
-        embed.add_field(name="Manual channel post", value="Type `!news post` to send current fresh items into the matching channels.", inline=False)
-        embed.add_field(name="Rule", value="`#breaking-news` is for market-moving headlines. `#general-news` is for important national/world headlines. `#reddit-hot` is for Reddit chatter only, not confirmed news.", inline=False)
+        embed.add_field(name="Manual channel post", value="Type `!news post` to send current fresh items into matching channels.", inline=False)
+        embed.add_field(name="Rule", value="Sports/entertainment noise is blocked. AI goes to `#ai-news` only when the headline has actual AI/chip/GPU/data-center context.", inline=False)
         embed.set_footer(text=VERSION)
         return embed
 
     def _build_sources_embed(self):
         embed = discord.Embed(title="✅ MarketOps News Source Policy", description=self.news.source_policy(), color=discord.Color.green())
         embed.add_field(name="Freshness Rule", value=self.news.freshness_policy(), inline=False)
-        embed.add_field(name="Provider Setup", value="Marketaux runs first when available. Trusted RSS is the fallback and now includes Reuters plus major-source data points like AP/NPR/CNBC/BBC/Yahoo Finance. Reddit RSS routes to `#reddit-hot` only.", inline=False)
+        embed.add_field(name="Provider Setup", value="Marketaux runs first when available. Trusted RSS fallback includes Reuters plus major-source data points like AP/NPR/CNBC/BBC/Yahoo Finance. Reddit routes to `#reddit-hot` only.", inline=False)
         embed.add_field(
             name="Recommended .env Settings",
-            value="`NEWS_MAX_AGE_HOURS=1`\n`NEWS_LOOKBACK=2h`\n`NEWS_POLL_MINUTES=15`\n`NEWS_FALLBACK_RSS=true`\n`NEWS_INCLUDE_MAJOR_SOURCES=true`\n`REDDIT_ENABLED=true`\n`REDDIT_SUBREDDITS=stocks,investing,wallstreetbets`\n`REDDIT_LIMIT_PER_SUBREDDIT=1`\n`REDDIT_CACHE_MINUTES=15`",
+            value="`NEWS_MAX_AGE_HOURS=1`\n`NEWS_LOOKBACK=2h`\n`NEWS_POLL_MINUTES=15`\n`NEWS_FALLBACK_RSS=true`\n`NEWS_INCLUDE_MAJOR_SOURCES=true`\n`NEWS_REUTERS_ONLY=false`\n`REDDIT_SUBREDDITS=stocks`\n`REDDIT_CACHE_MINUTES=30`",
             inline=False,
         )
         embed.set_footer(text=VERSION)
@@ -324,14 +329,17 @@ class News(commands.Cog):
         embed.add_field(name="Counts by Channel", value=self._format_counts(counts) or "No fresh items found.", inline=False)
         embed.add_field(name="Last Feed Check", value=self._last_check, inline=True)
         embed.add_field(name="Provider Used", value=self._last_provider_used, inline=True)
-        embed.add_field(name="Source Policy", value=report.get("source_policy", self.news.source_policy()), inline=False)
         embed.add_field(name="Freshness Policy", value=report.get("freshness_policy", self.news.freshness_policy()), inline=False)
         embed.set_footer(text=f'Checked {report.get("updated", "Unknown")} • {VERSION}')
         return embed
 
     def _build_live_status_embed(self):
         status = "ON" if self.auto_post_enabled else "OFF"
-        embed = discord.Embed(title="🟢 MarketOps Live News Monitor", description="Automatic fresh routing status.", color=discord.Color.green() if self.auto_post_enabled else discord.Color.red())
+        embed = discord.Embed(
+            title="🟢 MarketOps Live News Monitor",
+            description="Automatic fresh routing status.",
+            color=discord.Color.green() if self.auto_post_enabled else discord.Color.red(),
+        )
         embed.add_field(name="Auto-posting", value=f"**{status}**", inline=True)
         embed.add_field(name="Poll Rate", value=f"Every **{self.poll_minutes:g} minute(s)**", inline=True)
         embed.add_field(name="Seen Items", value=f"**{len(self.seen_news)}** tracked", inline=True)
@@ -399,6 +407,9 @@ class News(commands.Cog):
         while cleaned and not cleaned[0].isalnum():
             cleaned = cleaned[1:].strip()
         return cleaned.replace(" ", "-")
+
+    def _clean_link(self, link):
+        return (link or "").replace(" ", "%20").strip()
 
     def _env_bool(self, name, default=False):
         value = os.getenv(name)
