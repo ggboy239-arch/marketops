@@ -56,7 +56,7 @@ ADMIN_KEY_COMMANDS = [
     "renewals", "approverenew", "denyrenew",
 ]
 
-TICKET_COMMANDS = ["ticketpanel", "closeticket", "close"]
+TICKET_COMMANDS = ["ticketpanel", "tickethelp", "ticketadmin", "closeticket", "close"]
 
 COMMAND_CHANNELS = {
     "status": ["bot-status"],
@@ -69,6 +69,8 @@ COMMAND_CHANNELS = {
     **{command: ["redeem-access", "watchlist"] for command in ACCESS_CHANNEL_COMMANDS},
     **{command: ["admin-keys"] for command in ADMIN_KEY_COMMANDS},
     "ticketpanel": ["marketops-commands", "admin-keys"],
+    "tickethelp": ["admin-keys", "marketops-commands"],
+    "ticketadmin": ["admin-keys", "marketops-commands"],
     "closeticket": ["admin-keys", "marketops-commands"],
     "close": ["admin-keys", "marketops-commands"],
     "news": [
@@ -121,10 +123,10 @@ async def command_channel_check(ctx):
     if command_name in HELP_COMMANDS or invoked_name in HELP_COMMANDS:
         return True
 
-    # Ticket close must work inside created private ticket channels too.
+    # Ticket close/help must work inside created private ticket channels too.
     current_channel = getattr(ctx.channel, "name", "")
     cleaned_current_channel = _clean_channel_name(current_channel)
-    if invoked_name in {"closeticket", "close"} and cleaned_current_channel.startswith(("buy-", "renew-", "bug-", "support-", "ticket-")):
+    if invoked_name in {"closeticket", "close", "tickethelp", "ticketadmin"} and cleaned_current_channel.startswith(("buy-", "renew-", "bug-", "support-", "ticket-")):
         return True
 
     allowed_channels = COMMAND_CHANNELS.get(invoked_name) or COMMAND_CHANNELS.get(command_name)
