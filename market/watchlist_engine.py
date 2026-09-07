@@ -15,7 +15,8 @@ class WatchlistEngine:
 
     Think of this file as the "decision brain" for watchlist alerts.
     It does not talk to Discord directly. It checks prices and headlines,
-    decides what matters, and returns alert data that a Discord cog can display.
+    decides what matters, grades headline quality, and returns alert data
+    that a Discord cog can display.
     """
 
     DEFAULT_SYMBOLS = [
@@ -59,6 +60,71 @@ class WatchlistEngine:
         "ETH": ["eth", "ethereum", "ether", "crypto"],
     }
 
+    HIGH_TRUST_SOURCES = [
+        "reuters",
+        "associated press",
+        "ap news",
+        "cnbc",
+        "marketwatch",
+        "yahoo finance",
+        "wall street journal",
+        "wsj",
+        "bloomberg",
+        "financial times",
+        "ft.com",
+    ]
+
+    MEDIUM_TRUST_SOURCES = [
+        "seeking alpha",
+        "benzinga",
+        "investorplace",
+        "motley fool",
+        "the fly",
+        "zacks",
+        "barron's",
+        "barrons",
+        "investing.com",
+    ]
+
+    LOW_TRUST_HINTS = [
+        "blog",
+        "substack",
+        "rumor",
+        "unconfirmed",
+        "sponsored",
+        "press release",
+        "pr newswire",
+        "globenewswire",
+    ]
+
+    ACTION_WORDS = [
+        "earnings",
+        "guidance",
+        "forecast",
+        "raises",
+        "cuts",
+        "upgrade",
+        "downgrade",
+        "target",
+        "deal",
+        "contract",
+        "lawsuit",
+        "investigation",
+        "layoffs",
+        "strike",
+        "shutdown",
+        "plant",
+        "approval",
+        "ban",
+        "sanctions",
+        "war",
+        "oil",
+        "opec",
+        "inflation",
+        "fed",
+        "rates",
+    ]
+
     def __init__(self):
         self.provider = FinnhubProvider()
         self.marketaux_provider = MarketauxProvider()
@@ -90,12 +156,7 @@ class WatchlistEngine:
         }
 
     def scan_alerts(self, force=False):
-        """Scan the watchlist and return fresh price + news alerts.
-
-        force=False is used for automatic checks so the bot avoids reposting the
-        same alert repeatedly during the same day.
-        force=True is used for manual !alerts testing.
-        """
+        """Scan the watchlist and return fresh price + news alerts."""
         if not self.enabled:
             return {
                 "enabled": False,
@@ -176,6 +237,7 @@ class WatchlistEngine:
                     "type": "news",
                     "symbol": symbol,
                     "title": item.get("title", ""),
+                    "quality": alert.get("quality_label"),
                     "created": self._timestamp(),
                 }
 
@@ -273,6 +335,8 @@ class WatchlistEngine:
             "direction": direction,
             "status": status,
             "emoji": emoji,
+            "quality_label": "Price Move",
+            "quality_reason": "Triggered by percent move threshold, not a headline source.",
             "message": (
                 f"{emoji} **{symbol}** ({label}) is {direction} **{change_percent:+.2f}%** "
                 f"at **{price_text}**. Status: {status}."
@@ -287,12 +351,13 @@ class WatchlistEngine:
         provider = item.get("provider", "Unknown")
         link = item.get("link", "")
         published_dt = item.get("published_dt")
+        quality = self._score_news_quality(item)
 
         return {
             "type": "news",
             "symbol": symbol,
             "label": label,
-            "emoji": "📰",
+            "emoji": quality["emoji"],
             "message": f"📰 **{symbol}** ({label}) has a fresh headline: **{title}**",
             "watch": self._news_watch_note(symbol),
             "title": title,
@@ -300,6 +365,55 @@ class WatchlistEngine:
             "provider": provider,
             "link": link,
             "age": self._age_label(published_dt),
+            "quality_label": quality["label"],
+            "quality_reason": quality["reason"],
+            "quality_score": quality["score"],
+        }
+
+    def _score_news_quality(self, item):
+        title = (item.get("title") or "").lower()
+        source = (item.get("source") or "").lower()
+        provider = (item.get("provider") or "").lower()
+        link = (item.get("link") or "").lower()
+        combined = f"{title} {source} {provider} {link}"
+
+        if self._contains_any(combined, self.HIGH_TRUST_SOURCES):
+            return {
+                "label": "High Trust",
+                "emoji": "🟢",
+                "score": 3,
+                "reason": "Major news/market source. Still confirm price reaction before acting.",
+            }
+
+        if self._contains_any(combined, self.LOW_TRUST_HINTS):
+            return {
+                "label": "Low Trust",
+                "emoji": "🔴",
+                "score": 1,
+                "reason": "May be a press release, blog, rumor, or promotional source. Verify first.",
+            }
+
+        if self._contains_any(combined, self.MEDIUM_TRUST_SOURCES):
+            return {
+                "label": "Medium Trust",
+                "emoji": "🟡",
+                "score": 2,
+                "reason": "Useful market commentary, but often opinion/analyst based. Confirm elsewhere.",
+            }
+
+        if self._contains_any(title, self.ACTION_WORDS):
+            return {
+                "label": "Medium Trust",
+                "emoji": "🟡",
+                "score": 2,
+                "reason": "Headline contains market-moving words, but source still needs confirmation.",
+            }
+
+        return {
+            "label": "Needs Confirmation",
+            "emoji": "⚪",
+            "score": 0,
+            "reason": "Unknown source quality. Treat as a lead, not a trade signal.",
         }
 
     def _watch_note(self, symbol, change_percent):
@@ -386,6 +500,9 @@ class WatchlistEngine:
             return 0.0
 
         return result
+
+    def _contains_any(self, text, terms):
+        return any(term in text for term in terms)
 
     def _matches_any(self, text, terms):
         return any(self._term_match(text, term) for term in terms)
