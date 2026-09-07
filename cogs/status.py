@@ -8,7 +8,7 @@ from discord.ext import commands
 from market.watchlist_engine import WatchlistEngine
 
 
-VERSION = "MarketOps v2.4"
+VERSION = "MarketOps v2.4.1"
 PT_ZONE = ZoneInfo("America/Los_Angeles")
 
 
@@ -41,14 +41,14 @@ class Status(commands.Cog):
                 continue
 
             try:
-                await channel.send(embed=self._build_startup_embed(), suppress_embeds=True)
+                await channel.send(embed=self._build_startup_embed())
             except Exception as error:
                 print(f"❌ Startup status message error: {error}")
 
     @commands.command(name="status")
     async def status_prefix(self, ctx):
         """Show bot version, uptime, and active settings. Type !status."""
-        await ctx.send(embed=self._build_status_embed(), suppress_embeds=True)
+        await ctx.send(embed=self._build_status_embed())
 
     def _build_startup_embed(self):
         embed = discord.Embed(
