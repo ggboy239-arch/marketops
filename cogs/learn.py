@@ -6,14 +6,15 @@ from discord.ext import commands
 from market.market_service import MarketService
 
 
-VERSION = "MarketOps v2.0"
+VERSION = "MarketOps v2.1"
 
 
 class Learn(commands.Cog):
-    """Simple market learning command.
+    """Market learning commands.
 
-    Plain English: this command turns the dashboard into a short lesson so the
-    user learns why the bot is saying risk-on, risk-off, or mixed.
+    Plain English: this command turns the live dashboard into a short lesson.
+    The lesson changes based on the current market setup instead of repeating
+    the same generic text every time.
     """
 
     def __init__(self, bot):
@@ -36,10 +37,11 @@ class Learn(commands.Cog):
     def _build_learning_embed(self, dashboard):
         score = dashboard.get("score", 50)
         mood = dashboard.get("risk", "Mixed")
+        lesson = self._dynamic_lesson(dashboard)
 
         embed = discord.Embed(
             title="🎓 MarketOps Daily Learning Report",
-            description="A quick lesson based on today's dashboard.",
+            description="A quick lesson based on the current dashboard setup.",
             color=self._risk_color(score),
         )
 
@@ -50,38 +52,37 @@ class Learn(commands.Cog):
         )
 
         embed.add_field(
-            name="What This Means",
+            name="What This Means Right Now",
             value=self._explain_mood(score),
             inline=False,
         )
 
         reasons = dashboard.get("reasons", [])
-        reason_text = "\n".join(f"• {reason}" for reason in reasons[:5]) if reasons else "No clear reason yet."
+        reason_text = "\n".join(f"• {self._clean_market_text(reason)}" for reason in reasons[:5]) if reasons else "No clear reason yet."
         embed.add_field(name="Why MarketOps Thinks That", value=reason_text, inline=False)
 
         embed.add_field(
             name="What To Check Next",
             value=(
-                f'• Leader: {dashboard.get("leader", "Unknown")}\n'
-                f'• Weakest: {dashboard.get("loser", "Unknown")}\n'
-                f'• Warning signal: {dashboard.get("warning_signal", "Unknown")}\n'
-                f'• Oil/geo: {dashboard.get("energy_signal", "Unknown")}\n'
-                f'• Crypto: {dashboard.get("crypto_signal", "Unknown")}\n'
+                f'• Leader: {self._clean_market_text(dashboard.get("leader", "Unknown"))}\n'
+                f'• Weakest: {self._clean_market_text(dashboard.get("loser", "Unknown"))}\n'
+                f'• Warning signal: {self._clean_market_text(dashboard.get("warning_signal", "Unknown"))}\n'
+                f'• Oil/geo: {self._clean_market_text(dashboard.get("energy_signal", "Unknown"))}\n'
+                f'• Crypto: {self._clean_market_text(dashboard.get("crypto_signal", "Unknown"))}\n'
                 "• Then check whether fresh headlines confirm or disagree with the move."
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="Mini Lesson",
-            value=(
-                "Do not trade from one signal. Build a stack:\n"
-                "1) Futures direction\n"
-                "2) VIX/fear direction\n"
-                "3) Oil/rates/dollar pressure\n"
-                "4) Fresh headlines\n"
-                "5) Price + volume confirmation"
-            ),
+            name=lesson["title"],
+            value=lesson["lesson"],
+            inline=False,
+        )
+
+        embed.add_field(
+            name="Today's Practice Question",
+            value=lesson["question"],
             inline=False,
         )
 
@@ -116,6 +117,103 @@ class Learn(commands.Cog):
         )
         embed.set_footer(text=VERSION)
         return embed
+
+    def _dynamic_lesson(self, dashboard):
+        score = dashboard.get("score", 50)
+        text = " ".join(
+            str(dashboard.get(key, ""))
+            for key in ["leader", "loser", "warning_signal", "energy_signal", "crypto_signal", "theme"]
+        ).lower()
+        reasons = " ".join(str(item) for item in dashboard.get("reasons", [])).lower()
+        combined = f"{text} {reasons}"
+
+        if "fear" in combined or "vix" in combined:
+            return {
+                "title": "Mini Lesson: Fear / VIX Check",
+                "lesson": (
+                    "When VIX or fear rises, the market is saying traders are buying protection. "
+                    "That does not always mean a crash, but it means you should avoid chasing entries. "
+                    "Look for confirmation: are S&P/Nasdaq also falling, or is fear rising by itself?"
+                ),
+                "question": "Is fear confirming the move, or is it only a small warning while stocks hold up?",
+            }
+
+        if "oil" in combined or "energy" in combined or "geo" in combined:
+            return {
+                "title": "Mini Lesson: Oil / Geopolitics Pressure",
+                "lesson": (
+                    "Oil moving hard can affect inflation expectations, energy stocks, airlines, consumers, "
+                    "and geopolitics. If oil is rising with war or OPEC headlines, treat it as a risk signal. "
+                    "Check whether XOM/CVX are moving with oil or whether the whole market is getting nervous."
+                ),
+                "question": "Is oil helping only energy stocks, or is it creating pressure for the whole market?",
+            }
+
+        if "bitcoin" in combined or "crypto" in combined or "btc" in combined:
+            return {
+                "title": "Mini Lesson: Crypto Risk Appetite",
+                "lesson": (
+                    "Bitcoin can act like a risk-appetite clue. If BTC is strong while Nasdaq is strong, traders may be comfortable taking risk. "
+                    "If BTC drops while VIX rises, caution is usually higher. Do not use BTC alone; compare it with tech, VIX, and headlines."
+                ),
+                "question": "Is Bitcoin agreeing with stocks, or is it warning that risk appetite is fading?",
+            }
+
+        if "nasdaq" in combined or "tech" in combined or "ai" in combined:
+            return {
+                "title": "Mini Lesson: Tech / AI Leadership",
+                "lesson": (
+                    "When Nasdaq or AI names lead, the market may be leaning into growth and risk. "
+                    "But leadership can be narrow. Check whether NVDA/AMD/QQQ are strong together, "
+                    "and whether SPY is also following or lagging behind."
+                ),
+                "question": "Is tech leadership broad and healthy, or is only one big name carrying the market?",
+            }
+
+        if score >= 55:
+            return {
+                "title": "Mini Lesson: Risk-On Confirmation",
+                "lesson": (
+                    "Risk-on means buyers are more willing to take risk. The cleanest version is: futures up, VIX down, BTC up, "
+                    "rates calm, and positive headlines. If only one piece is bullish, wait for more confirmation."
+                ),
+                "question": "Which signals agree with risk-on, and which signal is the weak spot?",
+            }
+
+        if score <= 45:
+            return {
+                "title": "Mini Lesson: Risk-Off Protection",
+                "lesson": (
+                    "Risk-off means traders are more cautious. Your job is not to guess the bottom. "
+                    "Your job is to identify what caused the caution: VIX, rates, oil, geopolitics, or weak tech. "
+                    "Then wait to see if price and headlines stabilize."
+                ),
+                "question": "What is the main reason the market is cautious right now?",
+            }
+
+        return {
+            "title": "Mini Lesson: Mixed Market Patience",
+            "lesson": (
+                "Mixed markets are hard because signals disagree. That is usually a wait-and-confirm environment. "
+                "Build a stack before acting: futures direction, VIX, oil/rates/dollar, fresh headlines, then price and volume."
+            ),
+            "question": "Which two signals are disagreeing the most right now?",
+        }
+
+    def _clean_market_text(self, value):
+        text = str(value)
+        lower_text = text.lower()
+
+        if "nan" not in lower_text and "inf" not in lower_text:
+            return text
+
+        cleaned = text.replace("+nan%", "+0.00%")
+        cleaned = cleaned.replace("-nan%", "+0.00%")
+        cleaned = cleaned.replace("nan%", "0.00%")
+        cleaned = cleaned.replace("+inf%", "+0.00%")
+        cleaned = cleaned.replace("-inf%", "+0.00%")
+        cleaned = cleaned.replace("inf%", "0.00%")
+        return cleaned
 
     def _explain_mood(self, score):
         if score >= 70:
