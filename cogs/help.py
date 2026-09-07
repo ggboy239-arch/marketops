@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 
-VERSION = "MarketOps v2.9.2"
+VERSION = "MarketOps v2.9.3"
 
 
 class MarketOpsHelp(commands.Cog):
@@ -88,7 +88,7 @@ class MarketOpsHelp(commands.Cog):
         embed.add_field(
             name="📰 News Commands",
             value=(
-                "`!news` — latest routed news → news channels\n"
+                "`!news` — latest routed news → regular news channels only\n"
                 "`!news sources` — provider/source policy\n"
                 "`!news post` — post fresh routed items\n"
                 "`!news ai` — real AI/chips/data-center only → `#ai-news`\n"
@@ -105,9 +105,9 @@ class MarketOpsHelp(commands.Cog):
             name="📱 Social / Video Monitor",
             value=(
                 "`!social` — social/video monitor status → `#x-news`, `#video-news`, or `#trending-news`\n"
-                "`!xnews` — latest configured X public-account posts → `#x-news`\n"
-                "`!videonews` — latest Bloomberg/CNBC/Reuters video RSS items → `#video-news`\n"
-                "`!trending` — combined social/video watch → `#trending-news`\n"
+                "`!xnews` — raw configured X public-account posts → `#x-news`\n"
+                "`!videonews` — Bloomberg/CNBC/Reuters video RSS items → `#video-news`\n"
+                "`!trending` — configured X trending/fast-moving accounts → `#trending-news`\n"
                 "`!socialpost` — manually post routed social/video items"
             ),
             inline=False,
@@ -143,7 +143,7 @@ class MarketOpsHelp(commands.Cog):
 
         embed.add_field(
             name="Best Flow",
-            value="`!pulse` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!videonews` → `!learn candles`",
+            value="`!pulse` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!xnews` → `!videonews`",
             inline=False,
         )
 
