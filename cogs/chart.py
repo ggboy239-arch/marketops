@@ -14,14 +14,15 @@ import yfinance as yf
 from market.market_service import MarketService
 
 
-VERSION = "MarketOps v2.9"
+VERSION = "MarketOps v2.9.1"
 
 
 class Chart(commands.Cog):
     """Candlestick charts and fast market pulse.
 
     Plain English: this turns MarketOps from just headlines into price action.
-    It shows candles, open/high/low/close, bodies, wicks, and quick market reads.
+    Public charts go in #market-charts. Private per-user charts use !mychart and
+    are sent by DM so everyone is not forced to see the same ticker request.
     """
 
     PERIODS = {
@@ -59,8 +60,9 @@ class Chart(commands.Cog):
 
     @commands.command(name="chart", aliases=["candlechart"])
     async def chart_prefix(self, ctx, symbol: str = "SPY", period: str = "5d"):
+        """Public chart. Everyone in #market-charts can see it."""
         try:
-            result = await asyncio.to_thread(self._build_chart, symbol, period)
+            result = await asyncio.to_thread(self._build_chart, symbol, period, private=False)
             if not result.get("ok"):
                 await ctx.send(result.get("message", "⚠️ Could not build that chart."))
                 return
@@ -76,6 +78,32 @@ class Chart(commands.Cog):
             print(f"❌ !chart error: {error}")
             await ctx.send("⚠️ MarketOps had trouble building that chart. Check the terminal for the error.")
 
+    @commands.command(name="mychart", aliases=["privatechart", "dmchart"])
+    async def mychart_prefix(self, ctx, symbol: str = "SPY", period: str = "5d"):
+        """Private chart. Sends the candlestick chart to the requester by DM."""
+        try:
+            result = await asyncio.to_thread(self._build_chart, symbol, period, private=True)
+            if not result.get("ok"):
+                await ctx.send(result.get("message", "⚠️ Could not build that chart."))
+                return
+
+            file = discord.File(result["image"], filename=result["filename"])
+            try:
+                await ctx.author.send(
+                    content=result["mobile_text"],
+                    embed=result["embed"],
+                    file=file,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+                await ctx.send(f"✅ Sent your private `{result['symbol']}` candlestick chart to your DMs.")
+            except discord.Forbidden:
+                await ctx.send(
+                    "⚠️ I could not DM you. Turn on DMs for this server, or use `!chart SYMBOL PERIOD` in `#market-charts`."
+                )
+        except Exception as error:
+            print(f"❌ !mychart error: {error}")
+            await ctx.send("⚠️ MarketOps had trouble building your private chart. Check the terminal for the error.")
+
     @commands.command(name="candles", aliases=["candlehelp", "ohlc"])
     async def candles_prefix(self, ctx):
         await ctx.send(embed=self._candles_help_embed())
@@ -89,7 +117,7 @@ class Chart(commands.Cog):
             print(f"❌ !pulse error: {error}")
             await ctx.send("⚠️ MarketOps had trouble building the fast pulse. Check the terminal for the error.")
 
-    def _build_chart(self, raw_symbol, raw_period):
+    def _build_chart(self, raw_symbol, raw_period, private=False):
         symbol = self._normalize_symbol(raw_symbol)
         period_key = (raw_period or "5d").strip().lower()
         settings = self.PERIODS.get(period_key)
@@ -120,11 +148,12 @@ class Chart(commands.Cog):
         change_percent = (change / previous_close * 100) if previous_close else 0
 
         image = self._make_candle_image(history, symbol, settings["label"])
-        embed = self._chart_embed(symbol, settings["label"], candle, change, change_percent, len(history))
-        mobile_text = self._mobile_text(symbol, candle, change_percent)
+        embed = self._chart_embed(symbol, settings["label"], candle, change, change_percent, len(history), private)
+        mobile_text = self._mobile_text(symbol, candle, change_percent, private)
 
         return {
             "ok": True,
+            "symbol": symbol,
             "image": image,
             "filename": f"marketops_{self._filename_symbol(symbol)}_{period_key}.png",
             "embed": embed,
@@ -192,14 +221,15 @@ class Chart(commands.Cog):
         output.seek(0)
         return output
 
-    def _chart_embed(self, symbol, period_label, candle, change, change_percent, candle_count):
+    def _chart_embed(self, symbol, period_label, candle, change, change_percent, candle_count, private=False):
         candle_color = self._candle_color(candle)
         upper_wick = candle["high"] - max(candle["open"], candle["close"])
         lower_wick = min(candle["open"], candle["close"]) - candle["low"]
         body = abs(candle["close"] - candle["open"])
 
+        title_prefix = "🔒 Private" if private else "📈 MarketOps"
         embed = discord.Embed(
-            title=f"📈 MarketOps Chart — {symbol}",
+            title=f"{title_prefix} Chart — {symbol}",
             description=f"Candlestick chart with open/high/low/close explanation. Period: **{period_label}**.",
             color=discord.Color.green() if candle_color == "Green" else discord.Color.red() if candle_color == "Red" else discord.Color.gold(),
         )
@@ -231,10 +261,10 @@ class Chart(commands.Cog):
             ),
             inline=False,
         )
-        embed.add_field(name="What It Means", value=self._candle_read(candle, body, upper_wick, lower_wick), inline=False)
+        embed.add_field(name="Candle Read", value=self._candle_read(candle, body, upper_wick, lower_wick), inline=False)
         embed.add_field(
             name="Next Check",
-            value="Compare this with `!news`, `!calendarweek`, volume, support/resistance, and whether the next candle confirms or rejects the move.",
+            value="Compare this with news, calendar risk, volume, support/resistance, and whether the next candle confirms or rejects the move.",
             inline=False,
         )
         embed.set_footer(text=f"Candles are educational, not financial advice • {VERSION}")
@@ -243,7 +273,7 @@ class Chart(commands.Cog):
     def _candles_help_embed(self):
         embed = discord.Embed(
             title="🕯️ Candlestick Basics — Open / High / Low / Close",
-            description="Use this before reading `!chart TSLA`, `!chart SPY`, or `!chart GC=F`.",
+            description="Use this before reading `!chart TSLA`, `!mychart TSLA`, `!chart SPY`, or `!chart GC=F`.",
             color=discord.Color.gold(),
         )
         embed.add_field(
@@ -275,10 +305,18 @@ class Chart(commands.Cog):
             inline=False,
         )
         embed.add_field(
+            name="Public vs Private",
+            value=(
+                "`!chart TSLA 5d` posts publicly in `#market-charts`.\n"
+                "`!mychart TSLA 5d` sends the chart to your DMs so each user gets their own chart privately."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="How To Use It",
             value=(
                 "One candle alone is not enough. Check the last few candles, trend direction, news, calendar risk, and whether the next candle confirms.\n\n"
-                "Commands: `!chart TSLA`, `!chart TSLA 1d`, `!chart QQQ 5d`, `!chart GC=F 1mo`, `!pulse`."
+                "Examples: `!chart TSLA 1d`, `!mychart QQQ 5d`, `!chart GC=F 1mo`, `!pulse`."
             ),
             inline=False,
         )
@@ -289,7 +327,7 @@ class Chart(commands.Cog):
         assets = dashboard.get("assets", {})
         embed = discord.Embed(
             title="⚡ MarketOps Fast Pulse",
-            description="Fast snapshot. Markets can move by the second, so use this to decide what deserves a live chart check.",
+            description="Fast shared snapshot. Use this to decide what deserves a live chart check.",
             color=discord.Color.blue(),
         )
         embed.add_field(
@@ -309,10 +347,10 @@ class Chart(commands.Cog):
             ("bitcoin", "Bitcoin"),
         ]:
             text = assets.get(key, "Unavailable")
-            compact = " / ".join(line.replace("**", "") for line in text.splitlines()[1:3])
+            compact = " / ".join(line.replace("**", "") for line in str(text).splitlines()[1:3])
             lines.append(f"• **{label}:** {compact or text}")
         embed.add_field(name="Snapshot", value="\n".join(lines)[:1024], inline=False)
-        embed.add_field(name="Use Next", value="`!chart SPY 1d` / `!chart QQQ 1d` / `!chart GC=F 5d` / `!news post`", inline=False)
+        embed.add_field(name="Use Next", value="`!mychart SPY 1d` / `!mychart QQQ 1d` / `!chart GC=F 5d` / `!news post`", inline=False)
         embed.set_footer(text=f"Updated {dashboard.get('updated', 'Unknown')} PT • {VERSION}")
         return embed
 
@@ -338,10 +376,15 @@ class Chart(commands.Cog):
         if color == "Red" and body > upper_wick and body > lower_wick:
             return "Sellers controlled this candle because price closed below the open and the body is bigger than the wicks."
         if upper_wick > body * 1.5 and upper_wick > lower_wick:
-            return "Price pushed higher but got rejected. Sellers/profit-taking showed up near the top of the candle."
+            return "Price pushed higher but got rejected. Sellers or profit-taking showed up near the top of the candle."
         if lower_wick > body * 1.5 and lower_wick > upper_wick:
             return "Price pushed lower but buyers defended it. This can show demand near the lower price area."
         return "Mixed candle. Do not read it alone. Wait for the next candle and compare with trend, volume, and news."
+
+    def _mobile_text(self, symbol, candle, change_percent, private=False):
+        privacy = "Private" if private else "Public"
+        color = self._candle_color(candle)
+        return f"📈 MarketOps {privacy} Chart: {symbol} — Close {self._money(candle['close'])} — {change_percent:+.2f}% — {color} candle"
 
     def _normalize_symbol(self, value):
         clean = (value or "SPY").strip().upper().replace("$", "")
@@ -357,10 +400,7 @@ class Chart(commands.Cog):
             return None
 
     def _filename_symbol(self, symbol):
-        return symbol.replace("=", "").replace("^", "").replace("-", "_")
-
-    def _mobile_text(self, symbol, candle, change_percent):
-        return f"📈 MarketOps Chart: {symbol} — Close {self._money(candle['close'])} — {change_percent:+.2f}% vs prior candle"
+        return symbol.replace("=", "").replace("^", "").replace("-", "_").replace(".", "_")
 
 
 async def setup(bot):
