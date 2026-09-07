@@ -14,7 +14,7 @@ import discord
 from discord.ext import commands, tasks
 
 
-VERSION = "MarketOps v2.8.3"
+VERSION = "MarketOps v2.8.4"
 
 
 class MarketCalendar(commands.Cog):
@@ -26,6 +26,7 @@ class MarketCalendar(commands.Cog):
     """
 
     EVENTS_FILE = Path("data/calendar_events.json")
+    USER_DIR = Path("data/users")
 
     BLS_ICS_URL = "https://www.bls.gov/schedule/news_release/bls.ics"
     FED_CALENDAR_URL = "https://www.federalreserve.gov/newsevents/calendar.htm"
@@ -56,7 +57,7 @@ class MarketCalendar(commands.Cog):
         self.auto_post = os.getenv("MARKETOPS_CALENDAR_AUTO_POST", "true").strip().lower() in {"1", "true", "yes", "on"}
         self.fetch_minutes = max(15, int(os.getenv("MARKETOPS_CALENDAR_FETCH_MINUTES", "60")))
         self.window_days = int(os.getenv("MARKETOPS_CALENDAR_WINDOW_DAYS", "21"))
-        self.calendar_loop.change_interval(minutes=self.fetch_minutes)
+        self._last_fetch_utc = None
         self.calendar_loop.start()
 
     def cog_unload(self):
@@ -67,7 +68,7 @@ class MarketCalendar(commands.Cog):
         if not self._is_admin(ctx):
             await ctx.send("⚠️ Only a MarketOps admin can view the calendar helper.")
             return
-        await ctx.send(embed=self._help_embed())
+        await ctx.send(embed=self._help_embed(ctx))
 
     @commands.command(name="calendarfetch", aliases=["calfetch", "refreshcalendar"])
     async def calendarfetch_prefix(self, ctx):
@@ -76,34 +77,36 @@ class MarketCalendar(commands.Cog):
             return
         await ctx.send("🔎 Pulling official market-calendar sources now...")
         result = await asyncio.to_thread(self._fetch_and_store_events)
-        await ctx.send(embed=self._fetch_result_embed(result))
+        await ctx.send(embed=self._fetch_result_embed(result, ctx))
 
     @commands.command(name="events", aliases=["calendarlist", "eventlist", "upcoming"])
     async def events_prefix(self, ctx):
         if not self._is_admin(ctx):
             await ctx.send("⚠️ Only a MarketOps admin can view upcoming calendar events.")
             return
-        await ctx.send(embed=self._events_embed("upcoming"))
+        await ctx.send(embed=self._events_embed("upcoming", ctx))
 
     @commands.command(name="calendartoday", aliases=["todaycal", "todaycalendar"])
     async def calendartoday_prefix(self, ctx):
         if not self._is_admin(ctx):
             await ctx.send("⚠️ Only a MarketOps admin can view today’s events.")
             return
-        await ctx.send(embed=self._events_embed("today"))
+        await ctx.send(embed=self._events_embed("today", ctx))
 
     @commands.command(name="calendarweek", aliases=["weekcal", "weeklycalendar"])
     async def calendarweek_prefix(self, ctx):
         if not self._is_admin(ctx):
             await ctx.send("⚠️ Only a MarketOps admin can view this week’s events.")
             return
-        await ctx.send(embed=self._events_embed("week"))
+        await ctx.send(embed=self._events_embed("week", ctx))
 
     @commands.command(name="calendarstatus", aliases=["calstatus"])
     async def calendarstatus_prefix(self, ctx):
         if not self._is_admin(ctx):
             await ctx.send("⚠️ Only a MarketOps admin can view calendar status.")
             return
+
+        timezone_name = self._user_timezone(ctx)
         events = self._future_events(self._read_events().get("events", {}).values())
         embed = discord.Embed(
             title="🗓️ MarketOps Calendar Status",
@@ -114,8 +117,11 @@ class MarketCalendar(commands.Cog):
         embed.add_field(name="Calendar Channel", value=f"#{self.calendar_channel_name}", inline=True)
         embed.add_field(name="Reminder Channel", value=f"#{self.reminder_channel_name}", inline=True)
         embed.add_field(name="Fetch Every", value=f"{self.fetch_minutes} min", inline=True)
+        embed.add_field(name="Reminder Check", value="Every 1 min", inline=True)
         embed.add_field(name="Upcoming Stored", value=str(len(events)), inline=True)
+        embed.add_field(name="Your Saved Timezone", value=f"`{timezone_name}`", inline=True)
         embed.add_field(name="Reminder Posts", value="24h • 1h • 30m • 5m • starting now", inline=False)
+        embed.add_field(name="Mobile Time Display", value="Reminder posts include Discord timestamps so each person sees the event in their own local Discord timezone.", inline=False)
         embed.set_footer(text=VERSION)
         await ctx.send(embed=embed)
 
@@ -135,12 +141,16 @@ class MarketCalendar(commands.Cog):
         self.auto_post = False
         await ctx.send("🛑 Official calendar alerts are OFF for this bot session.")
 
-    @tasks.loop(minutes=60)
+    @tasks.loop(seconds=60)
     async def calendar_loop(self):
         if not self.auto_post or not self.bot.guilds:
             return
 
-        await asyncio.to_thread(self._fetch_and_store_events)
+        now_utc = datetime.now(timezone.utc)
+        if self._last_fetch_utc is None or (now_utc - self._last_fetch_utc) >= timedelta(minutes=self.fetch_minutes):
+            await asyncio.to_thread(self._fetch_and_store_events)
+            self._last_fetch_utc = now_utc
+
         events = self._future_events(self._read_events().get("events", {}).values())
         if not events:
             return
@@ -155,8 +165,13 @@ class MarketCalendar(commands.Cog):
                 reminder_channel = self._find_text_channel(guild, self.calendar_channel_name)
             if reminder_channel is None:
                 continue
+
             for event, reminder_type in due_alerts:
-                await reminder_channel.send(embed=self._event_alert_embed(event, reminder_type))
+                await reminder_channel.send(
+                    content=self._event_alert_content(event, reminder_type),
+                    embed=self._event_alert_embed(event, reminder_type),
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
 
         self._mark_alerts_posted(due_alerts)
 
@@ -213,6 +228,7 @@ class MarketCalendar(commands.Cog):
         text = self._get_url(self.BLS_ICS_URL)
         events = []
         for block in re.findall(r"BEGIN:VEVENT(.*?)END:VEVENT", text, flags=re.S):
+            block = re.sub(r"\r?\n[ \t]", "", block)
             summary = self._ics_field(block, "SUMMARY")
             dtstart = self._ics_field(block, "DTSTART")
             url = self._ics_field(block, "URL") or self.BLS_ICS_URL
@@ -318,32 +334,45 @@ class MarketCalendar(commands.Cog):
                 reminders.append(reminder_type)
         self._write_events(data)
 
-    def _events_embed(self, mode):
+    def _events_embed(self, mode, ctx=None):
+        timezone_name = self._user_timezone(ctx)
+        now_local = datetime.now(ZoneInfo(timezone_name))
         events = self._future_events(self._read_events().get("events", {}).values())
-        now_pt = datetime.now(ZoneInfo("America/Los_Angeles"))
+
         if mode == "today":
             title = "🗓️ Today’s Official Market Events"
-            events = [event for event in events if self._event_pt_time(event).date() == now_pt.date()]
+            events = [event for event in events if self._event_time(event, timezone_name).date() == now_local.date()]
         elif mode == "week":
             title = "🗓️ This Week’s Official Market Events"
-            week_end = now_pt + timedelta(days=7)
-            events = [event for event in events if now_pt <= self._event_pt_time(event) <= week_end]
+            week_end = now_local + timedelta(days=7)
+            events = [event for event in events if now_local <= self._event_time(event, timezone_name) <= week_end]
         else:
             title = "🗓️ Upcoming Official Market Events"
 
-        embed = discord.Embed(title=title, description="Pulled from official sources where available.", color=discord.Color.blue())
+        embed = discord.Embed(
+            title=title,
+            description=f"Pulled from official sources where available. Times shown in your saved timezone: `{timezone_name}`.",
+            color=discord.Color.blue(),
+        )
+
         if not events:
             embed.add_field(name="No events stored", value="Run `!calendarfetch` to pull official sources now.", inline=False)
         else:
             lines = []
             for event in events[:15]:
-                pt = self._event_pt_time(event)
-                lines.append(f"`{event.get('id')}` — {self._risk_icon(event)} {pt.strftime('%a %b %d %I:%M %p PT')} — **{event.get('title', 'Event')[:90]}**")
+                lines.append(self._event_line(event, timezone_name))
             embed.add_field(name="Events", value="\n".join(lines)[:1024], inline=False)
+            embed.add_field(
+                name="Discord Local Time",
+                value="The `<t:...>` timestamp also shows in each viewer’s own Discord timezone on mobile/desktop.",
+                inline=False,
+            )
+
         embed.set_footer(text=VERSION)
         return embed
 
-    def _fetch_result_embed(self, result):
+    def _fetch_result_embed(self, result, ctx=None):
+        timezone_name = self._user_timezone(ctx)
         events = result.get("events", [])
         errors = result.get("errors", [])
         embed = discord.Embed(
@@ -353,20 +382,25 @@ class MarketCalendar(commands.Cog):
         )
         embed.add_field(name="Upcoming Events Found", value=str(len(events)), inline=True)
         embed.add_field(name="Reminder Channel", value=f"#{self.reminder_channel_name}", inline=True)
+        embed.add_field(name="Your Saved Timezone", value=f"`{timezone_name}`", inline=True)
+
         if events:
             lines = []
             for event in events[:8]:
-                lines.append(f"• {self._event_pt_time(event).strftime('%a %b %d %I:%M %p PT')} — {event.get('title', 'Event')[:90]}")
+                lines.append(self._event_line(event, timezone_name))
             embed.add_field(name="Next Events", value="\n".join(lines)[:1024], inline=False)
         if errors:
             embed.add_field(name="Source Warnings", value="\n".join(errors[:4])[:1024], inline=False)
+
         embed.set_footer(text=VERSION)
         return embed
 
     def _event_alert_embed(self, event, reminder_type):
         labels = {"24h": "24 Hours Away", "1h": "1 Hour Away", "30m": "30 Minutes Away", "5m": "5 Minutes Away", "start": "Starting Now"}
-        pt = self._event_pt_time(event)
-        et = self._event_et_time(event)
+        pt = self._event_time(event, "America/Los_Angeles")
+        et = self._event_time(event, "America/New_York")
+        unix = self._event_unix(event)
+        discord_time = f"<t:{unix}:F> (<t:{unix}:R>)" if unix else "Unknown"
         risk_icon = self._risk_icon(event)
         color = discord.Color.red() if risk_icon == "🔴" else discord.Color.gold()
         embed = discord.Embed(
@@ -374,14 +408,30 @@ class MarketCalendar(commands.Cog):
             description=f"{risk_icon} **{event.get('title', 'Market event')}**",
             color=color,
         )
-        embed.add_field(name="Time", value=f"PT: `{pt.strftime('%a %b %d, %Y %I:%M %p')}`\nET: `{et.strftime('%a %b %d, %Y %I:%M %p')}`", inline=False)
+        embed.add_field(
+            name="Time",
+            value=(
+                f"Discord local: {discord_time}\n"
+                f"PT: `{pt.strftime('%a %b %d, %Y %I:%M %p %Z')}`\n"
+                f"ET: `{et.strftime('%a %b %d, %Y %I:%M %p %Z')}`"
+            ),
+            inline=False,
+        )
         embed.add_field(name="Why It Matters", value=event.get("why", "Scheduled event may move markets."), inline=False)
         embed.add_field(name="Watch", value=event.get("watch", "SPY, QQQ, VIX, DXY, 10Y"), inline=False)
         embed.add_field(name="Source", value=f"{event.get('source', 'Official source')}\n{event.get('url', '')}", inline=False)
         embed.set_footer(text=f"Official event reminder • {VERSION}")
         return embed
 
-    def _help_embed(self):
+    def _event_alert_content(self, event, reminder_type):
+        labels = {"24h": "24h", "1h": "1h", "30m": "30m", "5m": "5m", "start": "NOW"}
+        unix = self._event_unix(event)
+        timestamp = f"<t:{unix}:R>" if unix else "soon"
+        title = self._safe_text(event.get("title", "Market event"))[:130]
+        return f"⏰ MarketOps Calendar: {labels.get(reminder_type, 'soon')} — {title} — {timestamp}"
+
+    def _help_embed(self, ctx=None):
+        timezone_name = self._user_timezone(ctx)
         embed = discord.Embed(
             title="🗓️ MarketOps Official Event Calendar",
             description="Pulls official sources and only posts countdowns when real events are coming up. No empty daily reminders.",
@@ -391,8 +441,17 @@ class MarketCalendar(commands.Cog):
         embed.add_field(name="Manual Commands", value="`!calendarfetch` • `!events` • `!calendartoday` • `!calendarweek` • `!calendarstatus`", inline=False)
         embed.add_field(name="Auto Reminders", value="24h before • 1h before • 30m before • 5m before • starting now", inline=False)
         embed.add_field(name="Sources", value="BLS official calendar, Federal Reserve calendar, FOMC calendar, White House official feed.", inline=False)
+        embed.add_field(name="Timezone", value=f"Your manual event lists use your saved timezone: `{timezone_name}`. Public reminders use Discord local timestamps for each viewer.", inline=False)
         embed.set_footer(text=VERSION)
         return embed
+
+    def _event_line(self, event, timezone_name):
+        local = self._event_time(event, timezone_name)
+        unix = self._event_unix(event)
+        discord_time = f"<t:{unix}:f> (<t:{unix}:R>)" if unix else local.strftime("%a %b %d %I:%M %p")
+        local_text = local.strftime("%a %b %d %I:%M %p %Z")
+        title = self._safe_text(event.get("title", "Event"))[:90]
+        return f"`{event.get('id')}` — {self._risk_icon(event)} {discord_time} — `{local_text}` — **{title}**"
 
     def _make_event(self, source, title, event_time_utc, why, watch, url):
         event = {
@@ -434,11 +493,16 @@ class MarketCalendar(commands.Cog):
             return "🟡"
         return "🟢"
 
-    def _event_pt_time(self, event):
-        return self._parse_iso(event.get("event_time_utc")).astimezone(ZoneInfo("America/Los_Angeles"))
+    def _event_time(self, event, timezone_name):
+        zone = self._safe_zone(timezone_name)
+        parsed = self._parse_iso(event.get("event_time_utc"))
+        if not parsed:
+            return datetime.now(zone)
+        return parsed.astimezone(zone)
 
-    def _event_et_time(self, event):
-        return self._parse_iso(event.get("event_time_utc")).astimezone(ZoneInfo("America/New_York"))
+    def _event_unix(self, event):
+        parsed = self._parse_iso(event.get("event_time_utc"))
+        return int(parsed.timestamp()) if parsed else None
 
     def _parse_iso(self, text):
         try:
@@ -451,7 +515,8 @@ class MarketCalendar(commands.Cog):
 
     def _parse_ics_datetime(self, text):
         clean = (text or "").strip()
-        clean = clean.split(";", 1)[0].strip() if ":" in clean else clean
+        if ":" in clean:
+            clean = clean.split(":", 1)[-1].strip()
         clean = re.sub(r"[^0-9TZ]", "", clean)
 
         # BLS sometimes sends all-day dates with extra zeroes. Handle date-only first.
@@ -459,7 +524,7 @@ class MarketCalendar(commands.Cog):
             return datetime.strptime(clean[:8], "%Y%m%d").replace(hour=8, minute=30, tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
 
         if clean.endswith("Z"):
-            digits = clean[:-1]
+            digits = clean[:-1].replace("T", "")
             if len(digits) >= 14:
                 return datetime.strptime(digits[:14], "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
             if len(digits) >= 12:
@@ -521,6 +586,37 @@ class MarketCalendar(commands.Cog):
         self.EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
         with self.EVENTS_FILE.open("w", encoding="utf-8") as file:
             json.dump(data, file, indent=2)
+
+    def _user_timezone(self, ctx):
+        default = "America/Los_Angeles"
+        if ctx is None or getattr(ctx, "author", None) is None:
+            return default
+
+        path = self.USER_DIR / f"{ctx.author.id}.json"
+        if not path.exists():
+            return default
+
+        try:
+            with path.open("r", encoding="utf-8") as file:
+                data = json.load(file)
+            timezone_name = data.get("timezone") or default
+        except Exception:
+            timezone_name = default
+
+        try:
+            ZoneInfo(timezone_name)
+            return timezone_name
+        except Exception:
+            return default
+
+    def _safe_zone(self, timezone_name):
+        try:
+            return ZoneInfo(timezone_name)
+        except Exception:
+            return ZoneInfo("America/Los_Angeles")
+
+    def _safe_text(self, text):
+        return str(text or "").replace("@", "@\u200b").replace("\n", " ").strip()
 
     def _is_admin(self, ctx):
         if ctx.guild is None:
