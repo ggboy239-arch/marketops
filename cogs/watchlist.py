@@ -9,7 +9,7 @@ from discord.ext import commands, tasks
 from market.watchlist_engine import WatchlistEngine
 
 
-VERSION = "MarketOps v2.4.4"
+VERSION = "MarketOps v2.4.5"
 
 
 class Watchlist(commands.Cog):
@@ -150,7 +150,7 @@ class Watchlist(commands.Cog):
             if not alerts:
                 return
             for guild in self.bot.guilds:
-                channel = discord.utils.get(guild.text_channels, name=self.channel_name)
+                channel = self._find_text_channel(guild, self.channel_name)
                 if channel is None:
                     print(f"⚠️ Missing watchlist channel in {guild.name}: #{self.channel_name}")
                     continue
@@ -252,6 +252,22 @@ class Watchlist(commands.Cog):
                 f"{open_line}"
             )
         return f'{alert.get("message", "Price alert")}\nWatch: {alert.get("watch", "Verify before acting.")}'
+
+    def _find_text_channel(self, guild, target_name):
+        target = self._clean_channel_name(target_name)
+        for channel in guild.text_channels:
+            if self._clean_channel_name(channel.name).endswith(target):
+                return channel
+        return None
+
+    def _clean_channel_name(self, channel_name):
+        cleaned = (channel_name or "").strip().lower()
+        for separator in ("|", "┃", "│"):
+            if separator in cleaned:
+                cleaned = cleaned.split(separator)[-1].strip()
+        while cleaned and not cleaned[0].isalnum():
+            cleaned = cleaned[1:].strip()
+        return cleaned.replace(" ", "-")
 
     def _clean_link(self, link):
         return (link or "").replace(" ", "%20").strip()
