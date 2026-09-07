@@ -36,8 +36,8 @@ class MarketService:
         equity_leader = self._find_equity_leader(snapshot)
         equity_weakest = self._find_equity_weakest(snapshot)
         warning_signal = self._find_warning_signal(snapshot)
-        energy_signal = self._format_signal(snapshot, "oil")
-        crypto_signal = self._format_signal(snapshot, "bitcoin")
+        energy_signal = self._format_signal(snapshot, "oil", include_price=True)
+        crypto_signal = self._format_signal(snapshot, "bitcoin", include_price=True)
         theme = self._detect_theme(market_change, tech_change, fear_change, oil_change, bitcoin_change)
 
         return {
@@ -159,11 +159,19 @@ class MarketService:
             valid.append((key, quote))
         return valid
 
-    def _format_signal(self, snapshot, key):
+    def _format_signal(self, snapshot, key, include_price=False):
         quote = snapshot.get(key, {})
+        label = quote.get("label", key)
+
         if quote.get("status") == "Unavailable":
-            return f'{quote.get("label", key)} (unavailable)'
-        return f'{quote.get("label", key)} ({self._format_change(quote)})'
+            return f"{label} (unavailable)"
+
+        change_text = self._format_change(quote)
+        if not include_price:
+            return f"{label} ({change_text})"
+
+        price_text = self._format_price(quote.get("price"), quote.get("kind", "number"))
+        return f"{label} {price_text} ({change_text})"
 
     def _format_change(self, quote):
         if quote.get("status") == "Unavailable":
