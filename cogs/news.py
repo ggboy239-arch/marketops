@@ -12,14 +12,14 @@ from discord.ext import commands, tasks
 from market.news_engine import NewsEngine
 
 
-VERSION = "MarketOps v0.7.5"
+VERSION = "MarketOps v0.7.6"
 
 
 class News(commands.Cog):
     """MarketOps news routing.
 
     Plain English: this posts clean mobile-friendly headlines, then a compact
-    embed. It does not repeat the same "why it matters" paragraph on every item.
+    embed. Normal news stays in normal news channels only.
     """
 
     def __init__(self, bot):
@@ -212,7 +212,7 @@ class News(commands.Cog):
         items = report.get("items", [])
         embed = discord.Embed(
             title=self._title_for_category(category),
-            description="Fresh routed headlines. Use the headline as a lead, then check chart reaction with `!chart`.",
+            description="Fresh routed headlines for the regular news channels.",
             color=discord.Color.blue(),
         )
 
@@ -238,7 +238,6 @@ class News(commands.Cog):
         link = self._clean_link(item.get("link", ""))
         tags = ", ".join(item.get("tags", []))
         channel = item.get("channel", "breaking-news")
-        watch = item.get("watch", "Market reaction")
         provider = item.get("provider", "Unknown")
         trusted_badge = "✅ Trusted" if item.get("trusted") else "⚠️ Chatter / verify first"
         read_line = f"Open: [Read full item](<{link}>)\n" if link else ""
@@ -249,8 +248,7 @@ class News(commands.Cog):
             f"Source: {trusted_badge} • Provider: **{provider}**\n"
             f"Published: **{item.get('published_label', 'Unknown')}** ({item.get('age_label', 'Unknown')})\n"
             f"Tags: {tags}\n"
-            f"Route: `#{channel}`\n"
-            f"Watch next: **{watch}**"
+            f"Route: `#{channel}`"
         )
         return value[:997] + "..." if len(value) > 1000 else value
 
@@ -293,16 +291,17 @@ class News(commands.Cog):
 
     def _build_help_embed(self):
         embed = discord.Embed(title="📰 MarketOps News Help", description=self.news.category_help(), color=discord.Color.gold())
-        embed.add_field(name="Live Auto-Posting", value="MarketOps checks for fresh items and routes them into matching channels. Use `!news live` for status.", inline=False)
+        embed.add_field(name="Live Auto-Posting", value="MarketOps checks for fresh items and routes them into regular news channels. Use `!news live` for status.", inline=False)
         embed.add_field(name="Mobile Notifications", value="Auto-posts include a clean plain-text headline before the embed so Discord mobile shows the headline.", inline=False)
-        embed.add_field(name="Chart Step", value="After a headline posts, use `!chart SPY 1d`, `!chart QQQ 1d`, or a ticker chart to see if price confirms it.", inline=False)
+        embed.add_field(name="Separate Feeds", value="X/video/trending posts use `!social`, `!xnews`, `!videonews`, and `!trending` in their own channels.", inline=False)
         embed.set_footer(text=VERSION)
         return embed
 
     def _build_channel_map_embed(self):
         embed = discord.Embed(title="🧭 MarketOps News Channel Routing", description=self.news.channel_map_text(), color=discord.Color.gold())
-        embed.add_field(name="Manual channel post", value="Type `!news post` to send current fresh items into matching channels.", inline=False)
+        embed.add_field(name="Manual channel post", value="Type `!news post` to send current fresh items into regular news channels only.", inline=False)
         embed.add_field(name="Rule", value="Sports/entertainment noise is blocked. AI goes to `#ai-news` only when the headline has actual AI/chip/GPU/data-center context.", inline=False)
+        embed.add_field(name="Separate Channels", value="Regular news does not post to `#x-news`, `#video-news`, or `#trending-news`.", inline=False)
         embed.set_footer(text=VERSION)
         return embed
 
@@ -325,7 +324,7 @@ class News(commands.Cog):
         self._last_counts = counts
         self._last_provider_used = report.get("provider_used", "Unknown")
 
-        embed = discord.Embed(title="🧪 MarketOps News Debug", description="Shows how many fresh items MarketOps found for each route.", color=discord.Color.gold())
+        embed = discord.Embed(title="🧪 MarketOps News Debug", description="Shows how many fresh items MarketOps found for each regular news route.", color=discord.Color.gold())
         embed.add_field(name="Counts by Channel", value=self._format_counts(counts) or "No fresh items found.", inline=False)
         embed.add_field(name="Last Feed Check", value=self._last_check, inline=True)
         embed.add_field(name="Provider Used", value=self._last_provider_used, inline=True)
@@ -337,7 +336,7 @@ class News(commands.Cog):
         status = "ON" if self.auto_post_enabled else "OFF"
         embed = discord.Embed(
             title="🟢 MarketOps Live News Monitor",
-            description="Automatic fresh routing status.",
+            description="Automatic fresh routing status for regular news channels only.",
             color=discord.Color.green() if self.auto_post_enabled else discord.Color.red(),
         )
         embed.add_field(name="Auto-posting", value=f"**{status}**", inline=True)
