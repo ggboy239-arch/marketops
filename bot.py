@@ -54,6 +54,7 @@ SHARED_WATCHLIST_COMMANDS = [
 ADMIN_KEY_COMMANDS = [
     "genkey", "adminkey", "genkeys", "revokekey", "adminusers",
     "renewals", "approverenew", "denyrenew", "tickethelp", "ticketadmin",
+    "ticketlog", "keylog",
 ]
 
 COMMAND_CHANNELS = {
@@ -187,6 +188,7 @@ async def load():
     await bot.load_extension("cogs.users")
     await bot.load_extension("cogs.access")
     await bot.load_extension("cogs.tickets")
+    await bot.load_extension("cogs.logs")
 
 
 # --------------------
