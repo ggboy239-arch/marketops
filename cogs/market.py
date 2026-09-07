@@ -5,7 +5,7 @@ from discord.ext import commands
 from market.market_service import MarketService
 
 
-VERSION = "MarketOps v2.4.2"
+VERSION = "MarketOps v2.9"
 
 
 class Market(commands.Cog):
@@ -46,7 +46,7 @@ class Market(commands.Cog):
     def _build_market_embed(self, dashboard):
         embed = discord.Embed(
             title="🌅 MarketOps Dashboard",
-            description="What kind of market are we walking into?",
+            description="Price, risk, news context, and safety signals in one read.",
             color=self._risk_color(dashboard["score"]),
         )
 
@@ -65,6 +65,7 @@ class Market(commands.Cog):
         embed.add_field(name="🤖 Nasdaq Futures", value=dashboard["assets"]["tech"], inline=True)
         embed.add_field(name="😨 Fear / VIX", value=dashboard["assets"]["fear"], inline=True)
         embed.add_field(name="🛢 Oil", value=dashboard["assets"]["oil"], inline=True)
+        embed.add_field(name="🥇 Gold", value=dashboard["assets"]["gold"], inline=True)
         embed.add_field(name="💵 Dollar", value=dashboard["assets"]["dollar"], inline=True)
         embed.add_field(name="🏦 US10Y", value=dashboard["assets"]["rates"], inline=True)
         embed.add_field(name="₿ Bitcoin", value=dashboard["assets"]["bitcoin"], inline=True)
@@ -73,8 +74,14 @@ class Market(commands.Cog):
         embed.add_field(name="📉 Equity Weakest", value=dashboard["loser"], inline=True)
         embed.add_field(name="⚠️ Biggest Warning Signal", value=dashboard["warning_signal"], inline=True)
         embed.add_field(name="🛢 Energy / Geo Signal", value=dashboard["energy_signal"], inline=True)
+        embed.add_field(name="🥇 Gold / Safety Signal", value=dashboard["gold_signal"], inline=True)
         embed.add_field(name="₿ Crypto Signal", value=dashboard["crypto_signal"], inline=True)
         embed.add_field(name="🌙 After-Market Note", value=dashboard["after_market_note"], inline=False)
+        embed.add_field(
+            name="📈 Next Chart Step",
+            value="Use `!chart SPY`, `!chart QQQ`, `!chart GC=F`, or `!candles` in `#market-school` or `#market-dashboard`.",
+            inline=False,
+        )
 
         embed.set_footer(text=f'Updated {dashboard["updated"]} PT • {VERSION}')
         return embed
