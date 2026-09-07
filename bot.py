@@ -49,6 +49,7 @@ async def load():
     await bot.load_extension("cogs.news")
     await bot.load_extension("cogs.brief")
     await bot.load_extension("cogs.watchlist")
+    await bot.load_extension("cogs.learn")
 
 
 # --------------------
