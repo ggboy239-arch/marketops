@@ -3,88 +3,133 @@ import asyncio
 import discord
 from discord.ext import commands
 
+from market.access_key_engine import AccessKeyEngine
 from market.user_settings_engine import UserSettingsEngine
 
 
-VERSION = "MarketOps v2.5"
+VERSION = "MarketOps v2.6"
 
 
 class UserSettings(commands.Cog):
     """Personal MarketOps commands.
 
-    Plain English: these commands let each person in Eduardo's server keep their
-    own timezone, brief times, threshold, and watchlist.
+    Plain English: each person in Eduardo's server can keep their own timezone,
+    brief times, threshold, and watchlist after redeeming a key.
     """
 
     def __init__(self, bot):
         self.bot = bot
         self.users = UserSettingsEngine()
+        self.keys = AccessKeyEngine()
 
-    @commands.command(name="mysettings")
-    async def mysettings_prefix(self, ctx):
+    @commands.command(name="profile", aliases=["mysettings", "settings"])
+    async def profile_prefix(self, ctx):
+        if not await self._has_personal_access(ctx):
+            return
         settings = await asyncio.to_thread(self.users.get_settings, ctx.author.id, ctx.author.display_name)
         await ctx.send(embed=self._settings_embed(ctx.author.display_name, settings))
 
-    @commands.command(name="mytimezone")
-    async def mytimezone_prefix(self, ctx, timezone_name: str = ""):
+    @commands.command(name="timezone", aliases=["mytimezone", "tz"])
+    async def timezone_prefix(self, ctx, timezone_name: str = ""):
+        if not await self._has_personal_access(ctx):
+            return
         result = await asyncio.to_thread(self.users.set_timezone, ctx.author.id, ctx.author.display_name, timezone_name)
         await ctx.send(embed=self._result_embed("🌎 Personal Timezone", result))
 
-    @commands.command(name="mybrief")
-    async def mybrief_prefix(self, ctx, *, times_text: str = ""):
+    @commands.command(name="brief-times", aliases=["brieftimes", "mybrief"])
+    async def brief_times_prefix(self, ctx, *, times_text: str = ""):
+        if not await self._has_personal_access(ctx):
+            return
         result = await asyncio.to_thread(self.users.set_brief_times, ctx.author.id, ctx.author.display_name, times_text)
         await ctx.send(embed=self._result_embed("🌅 Personal Brief Times", result))
 
-    @commands.command(name="mythreshold")
-    async def mythreshold_prefix(self, ctx, value: str = ""):
+    @commands.command(name="alert-percent", aliases=["alertpercent", "mythreshold"])
+    async def alert_percent_prefix(self, ctx, value: str = ""):
+        if not await self._has_personal_access(ctx):
+            return
         result = await asyncio.to_thread(self.users.set_threshold, ctx.author.id, ctx.author.display_name, value)
-        await ctx.send(embed=self._result_embed("🎯 Personal Threshold", result))
+        await ctx.send(embed=self._result_embed("🎯 Personal Alert Percent", result))
 
-    @commands.command(name="mywatch")
-    async def mywatch_prefix(self, ctx, symbol: str = ""):
+    @commands.command(name="add", aliases=["mywatch"])
+    async def add_prefix(self, ctx, symbol: str = ""):
+        if not await self._has_personal_access(ctx):
+            return
         result = await asyncio.to_thread(self.users.add_symbol, ctx.author.id, ctx.author.display_name, symbol)
         await ctx.send(embed=self._result_embed("➕ Personal Watchlist", result))
 
-    @commands.command(name="myunwatch")
-    async def myunwatch_prefix(self, ctx, symbol: str = ""):
+    @commands.command(name="remove", aliases=["myunwatch"])
+    async def remove_prefix(self, ctx, symbol: str = ""):
+        if not await self._has_personal_access(ctx):
+            return
         result = await asyncio.to_thread(self.users.remove_symbol, ctx.author.id, ctx.author.display_name, symbol)
         await ctx.send(embed=self._result_embed("➖ Personal Watchlist", result))
 
-    @commands.command(name="myreset")
-    async def myreset_prefix(self, ctx):
+    @commands.command(name="reset-profile", aliases=["myreset"])
+    async def reset_profile_prefix(self, ctx):
+        if not await self._has_personal_access(ctx):
+            return
         result = await asyncio.to_thread(self.users.reset_user, ctx.author.id, ctx.author.display_name)
         await ctx.send(embed=self._result_embed("🔄 Personal Settings Reset", result))
 
-    @commands.command(name="mywatchlist")
-    async def mywatchlist_prefix(self, ctx):
+    @commands.command(name="list", aliases=["mywatchlist"])
+    async def list_prefix(self, ctx):
+        if not await self._has_personal_access(ctx):
+            return
         report = await asyncio.to_thread(self.users.watchlist_report, ctx.author.id, ctx.author.display_name)
         await ctx.send(embed=self._watchlist_embed(ctx.author.display_name, report))
 
-    @commands.command(name="myalerts")
-    async def myalerts_prefix(self, ctx):
+    @commands.command(name="scan", aliases=["myalerts"])
+    async def scan_prefix(self, ctx):
+        if not await self._has_personal_access(ctx):
+            return
         report = await asyncio.to_thread(self.users.alerts_report, ctx.author.id, ctx.author.display_name)
         await ctx.send(embed=self._alerts_embed(ctx.author.display_name, report))
 
+    async def _has_personal_access(self, ctx):
+        if self._is_admin(ctx):
+            return True
+
+        allowed = await asyncio.to_thread(self.keys.user_has_access, ctx.author.id)
+        if allowed:
+            return True
+
+        embed = discord.Embed(
+            title="🔐 MarketOps Access Required",
+            description="Personal commands require an active MarketOps key.",
+            color=discord.Color.orange(),
+        )
+        embed.add_field(name="Redeem", value="Type `!redeem YOUR-KEY-HERE` in `#watchlist`.", inline=False)
+        embed.add_field(name="Ask Eduardo", value="Ask the server owner for a beta, trial, monthly, or lifetime key.", inline=False)
+        embed.set_footer(text=VERSION)
+        await ctx.send(embed=embed)
+        return False
+
+    def _is_admin(self, ctx):
+        if ctx.guild is None:
+            return False
+        permissions = getattr(ctx.author, "guild_permissions", None)
+        return bool(permissions and permissions.administrator)
+
     def _settings_embed(self, name, settings):
         embed = discord.Embed(
-            title="👤 MarketOps Personal Settings",
+            title="👤 MarketOps Personal Profile",
             description=f"Personal setup for **{name}**.",
             color=discord.Color.blue(),
         )
         embed.add_field(name="Timezone", value=settings.get("timezone", "America/Los_Angeles"), inline=True)
         embed.add_field(name="Brief Times", value=", ".join(settings.get("brief_times", [])), inline=True)
-        embed.add_field(name="Threshold", value=f'±{settings.get("threshold", 3):g}%', inline=True)
+        embed.add_field(name="Alert Percent", value=f'±{settings.get("threshold", 3):g}%', inline=True)
         embed.add_field(name="Alerts", value="ON" if settings.get("alerts_enabled", True) else "OFF", inline=True)
         embed.add_field(name="News Alerts", value="ON" if settings.get("news_alerts_enabled", True) else "OFF", inline=True)
         embed.add_field(name="Symbols", value=", ".join(settings.get("symbols", [])) or "None", inline=False)
         embed.add_field(
             name="Personal Commands",
             value=(
-                "`!mytimezone America/Los_Angeles`\n"
-                "`!mybrief 05:30,09:30,13:15`\n"
-                "`!mythreshold 2`\n"
-                "`!mywatch TSLA` / `!myunwatch TSLA`\n"
-                "`!mywatchlist` / `!myalerts`"
+                "`!timezone America/Los_Angeles`\n"
+                "`!brief-times 05:30,09:30,13:15`\n"
+                "`!alert-percent 2`\n"
+                "`!add TSLA` / `!remove TSLA`\n"
+                "`!list` / `!scan`"
             ),
             inline=False,
         )
@@ -100,7 +145,7 @@ class UserSettings(commands.Cog):
         )
         quotes = report.get("quotes", [])
         embed.add_field(name="Symbols", value="\n".join(quotes[:15]) or "No symbols saved.", inline=False)
-        embed.add_field(name="Threshold", value=f'±{settings.get("threshold", 3):g}%', inline=True)
+        embed.add_field(name="Alert Percent", value=f'±{settings.get("threshold", 3):g}%', inline=True)
         embed.add_field(name="Timezone", value=settings.get("timezone", "America/Los_Angeles"), inline=True)
         embed.set_footer(text=f'Updated {report.get("updated", "Unknown")} • {VERSION}')
         return embed
@@ -108,8 +153,8 @@ class UserSettings(commands.Cog):
     def _alerts_embed(self, name, report):
         settings = report.get("settings", {})
         embed = discord.Embed(
-            title="🚨 Personal Alerts",
-            description=f"Price alerts for **{name}** using their own threshold.",
+            title="🚨 Personal Alert Scan",
+            description=f"Price alerts for **{name}** using their own alert percent.",
             color=discord.Color.red(),
         )
         alerts = report.get("alerts", [])
@@ -131,7 +176,7 @@ class UserSettings(commands.Cog):
         settings = result.get("settings")
         if settings:
             embed.add_field(name="Timezone", value=settings.get("timezone", "America/Los_Angeles"), inline=True)
-            embed.add_field(name="Threshold", value=f'±{settings.get("threshold", 3):g}%', inline=True)
+            embed.add_field(name="Alert Percent", value=f'±{settings.get("threshold", 3):g}%', inline=True)
             embed.add_field(name="Symbols", value=", ".join(settings.get("symbols", [])) or "None", inline=False)
         embed.set_footer(text=VERSION)
         return embed
