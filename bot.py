@@ -58,7 +58,14 @@ ADMIN_KEY_COMMANDS = [
 
 OWNER_AUDIT_COMMANDS = ["ticketlog", "keylog"]
 
-CALENDAR_COMMANDS = ["calendar", "marketcalendar", "cal", "calendarhelp"]
+CALENDAR_COMMANDS = [
+    "calendar", "marketcalendar", "cal", "calendarhelp",
+    "calendarfetch", "calfetch", "refreshcalendar",
+    "events", "eventlist", "upcoming",
+    "calendartoday", "todaycal", "todaycalendar",
+    "calendarweek", "weekcal", "weeklycalendar",
+    "calendarstatus", "calstatus", "calendaron", "calon", "calendaroff", "caloff",
+]
 
 COMMAND_CHANNELS = {
     "status": ["bot-status"],
