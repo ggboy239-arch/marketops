@@ -8,10 +8,10 @@ load_dotenv()
 
 
 class MarketauxProvider:
-    """Fetches free/low-cost market news from Marketaux.
+    """Fetches optional market news from Marketaux.
 
-    Marketaux is optional. If MARKETAUX_API_KEY or MARKETAUX_API_TOKEN is missing,
-    MarketOps will keep using the Reuters-focused RSS fallback.
+    Marketaux is optional. If the API key is missing, timed out, over quota,
+    or payment-required, MarketOps falls back to RSS instead of crashing.
     """
 
     BASE_URL = "https://api.marketaux.com/v1/news/all"
@@ -42,6 +42,7 @@ class MarketauxProvider:
     def __init__(self):
         self.api_key = os.getenv("MARKETAUX_API_KEY") or os.getenv("MARKETAUX_API_TOKEN")
         self.enabled = bool(self.api_key)
+        self.disabled_reason = ""
         self.timeout = int(os.getenv("MARKETAUX_TIMEOUT_SECONDS", "10"))
         self.limit = int(os.getenv("MARKETAUX_LIMIT", "10"))
         self.countries = os.getenv("MARKETAUX_COUNTRIES", "us")
@@ -55,7 +56,7 @@ class MarketauxProvider:
 
     def get_latest_news(self, limit=25):
         if not self.enabled:
-            self.last_status = "OFF: MARKETAUX_API_KEY missing"
+            self.last_status = self.disabled_reason or "OFF: MARKETAUX_API_KEY missing"
             return []
 
         request_limit = min(max(1, limit), self.limit)
@@ -79,6 +80,21 @@ class MarketauxProvider:
 
         try:
             response = requests.get(self.BASE_URL, params=params, timeout=self.timeout)
+
+            if response.status_code == 402:
+                self.enabled = False
+                self.disabled_reason = "OFF: Marketaux returned 402 Payment Required / quota issue"
+                self.last_status = self.disabled_reason
+                print("⚠️ Marketaux disabled: 402 Payment Required / quota issue. Using RSS fallback.")
+                return []
+
+            if response.status_code == 401:
+                self.enabled = False
+                self.disabled_reason = "OFF: Marketaux returned 401 Unauthorized / bad API key"
+                self.last_status = self.disabled_reason
+                print("⚠️ Marketaux disabled: 401 Unauthorized. Rotate/check MARKETAUX_API_KEY. Using RSS fallback.")
+                return []
+
             response.raise_for_status()
             payload = response.json()
             articles = self._extract_articles(payload)
@@ -87,17 +103,33 @@ class MarketauxProvider:
 
             return [self._normalize_article(article) for article in articles]
 
+        except requests.exceptions.Timeout:
+            self.last_status = "ERROR: timeout"
+            print("⚠️ Marketaux timeout. Using RSS fallback.")
+            return []
+
+        except requests.exceptions.HTTPError as error:
+            status_code = getattr(error.response, "status_code", "unknown")
+            self.last_status = f"ERROR: HTTP {status_code}"
+            print(f"⚠️ Marketaux HTTP error {status_code}. Using RSS fallback.")
+            return []
+
+        except requests.exceptions.RequestException as error:
+            self.last_status = f"ERROR: {error.__class__.__name__}"
+            print(f"⚠️ Marketaux connection error: {error.__class__.__name__}. Using RSS fallback.")
+            return []
+
         except Exception as error:
-            self.last_status = f"ERROR: {error}"
-            print(f"❌ Marketaux API error: {error}")
+            self.last_status = f"ERROR: {error.__class__.__name__}"
+            print(f"⚠️ Marketaux unexpected error: {error.__class__.__name__}. Using RSS fallback.")
             return []
 
     def source_policy(self):
         if not self.enabled:
-            return "Marketaux is OFF because MARKETAUX_API_KEY is missing."
+            return f"Marketaux is OFF. {self.disabled_reason or 'MARKETAUX_API_KEY missing.'}"
 
         return (
-            "Marketaux mode is ON. MarketOps checks Marketaux first for free market-news API coverage. "
+            "Marketaux mode is ON. MarketOps checks Marketaux first for market-news API coverage. "
             f"Last Marketaux status: {self.last_status}."
         )
 
