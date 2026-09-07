@@ -10,7 +10,7 @@ from discord.ext import commands, tasks
 from market.brief_engine import BriefEngine
 
 
-VERSION = "MarketOps v2.4.3"
+VERSION = "MarketOps v2.9"
 PT_ZONE = ZoneInfo("America/Los_Angeles")
 
 
@@ -119,6 +119,7 @@ class Brief(commands.Cog):
                 f'**Weakest:** {dashboard["loser"]}\n'
                 f'**Warning:** {dashboard["warning_signal"]}\n'
                 f'**Oil/Geo:** {dashboard["energy_signal"]}\n'
+                f'**Gold/Safety:** {dashboard.get("gold_signal", "Gold unavailable")}\n'
                 f'**Crypto:** {dashboard["crypto_signal"]}'
             ),
             inline=False,
@@ -140,6 +141,11 @@ class Brief(commands.Cog):
         embed.add_field(
             name="🎯 What To Watch",
             value="\n".join(f"• {item}" for item in brief.get("watch_list", [])),
+            inline=False,
+        )
+        embed.add_field(
+            name="📈 Chart Step",
+            value="Use `!pulse` for a fast snapshot, then `!chart SPY 1d`, `!chart QQQ 1d`, `!chart GC=F 5d`, or `!candles`.",
             inline=False,
         )
 
