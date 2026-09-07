@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 
-VERSION = "MarketOps v2.6"
+VERSION = "MarketOps v2.9"
 
 
 class MarketOpsHelp(commands.Cog):
@@ -23,12 +23,38 @@ class MarketOpsHelp(commands.Cog):
         )
 
         embed.add_field(
-            name="🌅 Morning / Market Read",
+            name="⚡ Fast Market / Charts",
+            value=(
+                "`!pulse` — fast snapshot → `#market-dashboard` or `#market-school`\n"
+                "`!market` — full dashboard with gold/oil/VIX/rates/BTC → `#market-dashboard`\n"
+                "`!chart TSLA` — candlestick chart → `#market-dashboard` or `#market-school`\n"
+                "`!chart QQQ 1d` — 1-day intraday candles\n"
+                "`!chart GC=F 5d` — gold futures chart\n"
+                "`!candles` — open/high/low/close lesson"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🎓 Learning",
+            value=(
+                "`!learn` — detailed lesson based on current market setup → `#market-school`\n"
+                "`!learn candles` — candlestick/OHLC lesson\n"
+                "`!learn risk` — risk-on/risk-off lesson\n"
+                "`!learn vix` — fear/VIX lesson\n"
+                "`!learn rates` — 10Y/DXY/rates lesson\n"
+                "`!learn gold` — gold/safety lesson\n"
+                "`!learn news` — news vs price action lesson\n"
+                "`!playbook` — full MarketOps checklist"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🌅 Brief",
             value=(
                 "`!brief` — full market brief → `#morning-brief`\n"
-                "`!market` — quick dashboard → `#market-dashboard`\n"
-                "`!learn` — explains today's market setup → `#market-school`\n"
-                "`!playbook` — quick checklist → `#market-school`"
+                "`!brief schedule` — show scheduled brief times"
             ),
             inline=False,
         )
@@ -36,26 +62,13 @@ class MarketOpsHelp(commands.Cog):
         embed.add_field(
             name="👤 Personal User Commands",
             value=(
-                "`!redeem KEY-HERE` — unlock personal commands → `#watchlist`\n"
+                "`!redeem KEY-HERE` — unlock personal commands → `#redeem-access`\n"
                 "`!profile` — show your setup → `#watchlist`\n"
                 "`!timezone America/New_York` — set your timezone → `#watchlist`\n"
                 "`!brief-times 06:00,12:00,16:15` — set your times → `#watchlist`\n"
                 "`!alert-percent 3` — set your alert percent → `#watchlist`\n"
                 "`!add TSLA` / `!remove TSLA` — edit your list → `#watchlist`\n"
                 "`!list` / `!scan` — show or scan your personal list → `#watchlist`"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🔑 Admin Key Commands",
-            value=(
-                "`!genkey beta 30` — make one 30-day beta key\n"
-                "`!genkey monthly 30` — make one monthly key\n"
-                "`!genkey lifetime` — make one lifetime key\n"
-                "`!genkeys beta 30 5` — make 5 beta keys\n"
-                "`!revokekey KEY-HERE` — disable a key\n"
-                "`!adminusers` — see redeemed users"
             ),
             inline=False,
         )
@@ -75,12 +88,36 @@ class MarketOpsHelp(commands.Cog):
             name="📰 News Commands",
             value=(
                 "`!news` — latest routed news → news channels\n"
-                "`!news sources` — provider status/source policy\n"
-                "`!news ai` — AI/tech → `#ai-news`\n"
+                "`!news sources` — provider/source policy\n"
+                "`!news post` — post fresh routed items\n"
+                "`!news ai` — real AI/chips/data-center only → `#ai-news`\n"
+                "`!news general` — major U.S./world news → `#general-news`\n"
                 "`!news geo` — geopolitics/oil risk → `#geopolitics`\n"
                 "`!news fed` — Fed/rates/inflation → `#fed`\n"
                 "`!news crypto` — crypto → `#crypto`\n"
                 "`!news reddit` — Reddit chatter → `#reddit-hot`"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🗓 Calendar",
+            value=(
+                "`!calendarfetch` — pull official event calendar → `#market-calendar`\n"
+                "`!events` — upcoming official events\n"
+                "`!calendartoday` — today only\n"
+                "`!calendarweek` — next 7 days\n"
+                "Reminders post to `#calendar-event-reminder` only when an event is coming up."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🔑 Admin / Owner",
+            value=(
+                "Admin keys/tickets: `#admin-keys`\n"
+                "Owner audit logs: `#owner-audit`\n"
+                "Ticket panel: `!ticketpanel` → `#marketops-commands`"
             ),
             inline=False,
         )
@@ -93,7 +130,7 @@ class MarketOpsHelp(commands.Cog):
 
         embed.add_field(
             name="Best Daily Flow",
-            value="`!brief` → `!list` → `!scan` → `!learn`",
+            value="`!pulse` → `!brief` → `!chart SPY 1d` → `!chart QQQ 1d` → `!news post` → `!learn`",
             inline=False,
         )
 
