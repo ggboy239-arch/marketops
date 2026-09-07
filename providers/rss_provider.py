@@ -2,7 +2,7 @@ import html
 import os
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote_plus
 
@@ -15,9 +15,9 @@ load_dotenv()
 class RSSProvider:
     """Fetches trusted public RSS feeds for MarketOps news.
 
-    This provider is Reuters-focused by default. It fetches RSS/search results,
-    verifies that the item is actually Reuters when Reuters-only mode is on,
-    and returns clean headline data.
+    Reuters stays the main trusted source, but this provider can also pull
+    major U.S./world news from AP/NPR/CNBC/BBC/Yahoo Finance as a second
+    data point for events that can affect markets or companies.
     """
 
     REUTERS_ENV_FEEDS = [
@@ -34,33 +34,107 @@ class RSSProvider:
     REUTERS_SEARCH_FEEDS = [
         {
             "name": "Reuters Markets",
-            "query": 'site:reuters.com/markets (stocks OR futures OR "Wall Street" OR Nasdaq OR "S&P 500" OR "global markets")',
+            "query": 'site:reuters.com/markets (stocks OR futures OR "Wall Street" OR Nasdaq OR "S&P 500" OR "global markets" OR yields OR oil)',
             "category_hint": "📊 Broad Market",
+            "trusted_source": "Reuters",
+            "trusted_aliases": ["reuters"],
         },
         {
             "name": "Reuters General News",
-            "query": 'site:reuters.com ("White House" OR Congress OR "Supreme Court" OR election OR cyberattack OR hurricane OR wildfire OR immigration OR border OR protest OR strike OR "national emergency")',
+            "query": 'site:reuters.com ("White House" OR Congress OR "Supreme Court" OR election OR cyberattack OR hurricane OR wildfire OR immigration OR border OR protest OR strike OR "national emergency" OR tariff OR sanctions OR "supply chain" OR antitrust OR lawsuit OR regulation)',
             "category_hint": "🗞 General News",
+            "trusted_source": "Reuters",
+            "trusted_aliases": ["reuters"],
         },
         {
             "name": "Reuters AI / Tech",
-            "query": 'site:reuters.com (AI OR "artificial intelligence" OR Nvidia OR AMD OR semiconductor OR chips OR Microsoft OR Amazon OR Apple)',
+            "query": 'site:reuters.com (AI OR "artificial intelligence" OR Nvidia OR AMD OR semiconductor OR chips OR Microsoft OR Amazon OR Apple OR data center)',
             "category_hint": "🤖 AI / Tech",
+            "trusted_source": "Reuters",
+            "trusted_aliases": ["reuters"],
         },
         {
             "name": "Reuters Fed / Rates",
-            "query": 'site:reuters.com (Fed OR "Federal Reserve" OR Powell OR inflation OR CPI OR PPI OR yields OR Treasury OR jobs OR payroll)',
+            "query": 'site:reuters.com (Fed OR "Federal Reserve" OR Powell OR inflation OR CPI OR PPI OR yields OR Treasury OR jobs OR payroll OR "rate cut" OR "rate hike")',
             "category_hint": "🏦 Fed / Rates",
+            "trusted_source": "Reuters",
+            "trusted_aliases": ["reuters"],
         },
         {
             "name": "Reuters Oil / Geopolitics",
-            "query": 'site:reuters.com (oil OR crude OR OPEC OR Iran OR Israel OR Lebanon OR Hezbollah OR Hormuz OR Ukraine OR China OR Taiwan OR NATO)',
+            "query": 'site:reuters.com (oil OR crude OR OPEC OR Iran OR Israel OR Lebanon OR Hezbollah OR Hormuz OR Ukraine OR Russia OR China OR Taiwan OR NATO OR sanctions OR missile OR attack)',
             "category_hint": "🛢 Oil / Geopolitics",
+            "trusted_source": "Reuters",
+            "trusted_aliases": ["reuters"],
         },
         {
             "name": "Reuters Crypto",
             "query": 'site:reuters.com (bitcoin OR crypto OR ethereum OR Coinbase OR "spot bitcoin ETF" OR "ether ETF")',
             "category_hint": "₿ Crypto",
+            "trusted_source": "Reuters",
+            "trusted_aliases": ["reuters"],
+        },
+    ]
+
+    MAJOR_SEARCH_FEEDS = [
+        {
+            "name": "AP Major News",
+            "query": 'site:apnews.com ("White House" OR Congress OR "Supreme Court" OR Fed OR inflation OR jobs OR oil OR Iran OR Israel OR Russia OR Ukraine OR China OR Taiwan OR tariff OR sanctions OR cyberattack OR strike OR lawsuit OR antitrust OR "supply chain" OR banking OR "data breach")',
+            "category_hint": "🗞 General News",
+            "trusted_source": "AP News",
+            "trusted_aliases": ["ap news", "associated press", "apnews"],
+        },
+        {
+            "name": "NPR Major News",
+            "query": 'site:npr.org (economy OR politics OR "White House" OR Congress OR "Supreme Court" OR Fed OR inflation OR jobs OR oil OR tariff OR sanctions OR cyberattack OR strike OR lawsuit OR "supply chain")',
+            "category_hint": "🗞 General News",
+            "trusted_source": "NPR",
+            "trusted_aliases": ["npr", "npr.org"],
+        },
+        {
+            "name": "CNBC Top News",
+            "query": 'site:cnbc.com (markets OR stocks OR economy OR Fed OR inflation OR oil OR tech OR Nvidia OR AMD OR tariff OR White House OR "Supreme Court" OR cyberattack OR strike)',
+            "category_hint": "📊 Broad Market",
+            "trusted_source": "CNBC",
+            "trusted_aliases": ["cnbc"],
+        },
+        {
+            "name": "BBC US/World News",
+            "query": 'site:bbc.com/news OR site:bbc.co.uk/news (US OR "United States" OR China OR Russia OR Ukraine OR Iran OR Israel OR oil OR tariffs OR sanctions OR cyberattack)',
+            "category_hint": "🗞 General News",
+            "trusted_source": "BBC",
+            "trusted_aliases": ["bbc"],
+        },
+    ]
+
+    MAJOR_DIRECT_FEEDS = [
+        {
+            "name": "NPR Top Stories",
+            "url": "https://feeds.npr.org/1001/rss.xml",
+            "category_hint": "🗞 General News",
+            "trusted_source": "NPR",
+            "trusted_aliases": ["npr", "npr.org"],
+        },
+        {
+            "name": "CNBC Top News",
+            "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+            "category_hint": "📊 Broad Market",
+            "trusted_source": "CNBC",
+            "trusted_aliases": ["cnbc"],
+        },
+        {
+            "name": "BBC US & Canada",
+            "url": "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml",
+            "category_hint": "🗞 General News",
+            "trusted_source": "BBC",
+            "trusted_aliases": ["bbc", "bbc.co.uk", "bbc.com"],
+        },
+        {
+            "name": "Yahoo Finance",
+            "url": "https://finance.yahoo.com/news/rssindex",
+            "category_hint": "📊 Broad Market",
+            "trusted_source": "Yahoo Finance",
+            "trusted_aliases": ["yahoo finance", "finance.yahoo"],
         },
     ]
 
@@ -79,15 +153,13 @@ class RSSProvider:
 
     def __init__(self, feeds=None):
         self.reuters_only = self._env_bool("NEWS_REUTERS_ONLY", default=True)
-        self.include_extra_sources = self._env_bool(
-            "NEWS_INCLUDE_EXTRA_SOURCES",
-            default=False,
-        )
+        self.include_major_sources = self._env_bool("NEWS_INCLUDE_MAJOR_SOURCES", default=True)
+        self.include_extra_sources = self._env_bool("NEWS_INCLUDE_EXTRA_SOURCES", default=False)
         # This is NOT the delay. It is only the search window used to find fresh items.
-        self.lookback = os.getenv("NEWS_LOOKBACK", "1h")
+        self.lookback = os.getenv("NEWS_LOOKBACK", "2h")
         self.feeds = feeds or self._load_feeds()
         self.headers = {
-            "User-Agent": "MarketOps/0.6.3 (near-live trusted market news monitor)",
+            "User-Agent": "MarketOps/0.7.4 (trusted market and major news monitor)",
         }
 
     def get_latest_news(self, limit=10):
@@ -102,9 +174,11 @@ class RSSProvider:
         return items[:limit]
 
     def source_policy(self):
-        mode = "ON" if self.reuters_only else "OFF"
+        reuters_mode = "ON" if self.reuters_only else "OFF"
+        major_mode = "ON" if self.include_major_sources else "OFF"
         return (
-            f"Reuters-only mode is {mode}. MarketOps keeps verified Reuters headlines by default. "
+            f"Reuters-only verification is {reuters_mode}. "
+            f"Major-source mode is {major_mode}: AP/NPR/CNBC/BBC/Yahoo Finance can be used as second data points. "
             f"Search lookback is {self.lookback}; this is a search window, not a delay."
         )
 
@@ -120,6 +194,7 @@ class RSSProvider:
                         "url": url,
                         "category_hint": category_hint,
                         "trusted_source": "Reuters",
+                        "trusted_aliases": ["reuters"],
                     }
                 )
 
@@ -129,9 +204,23 @@ class RSSProvider:
                     "name": feed["name"],
                     "url": self._google_news_rss(feed["query"]),
                     "category_hint": feed["category_hint"],
-                    "trusted_source": "Reuters",
+                    "trusted_source": feed["trusted_source"],
+                    "trusted_aliases": feed.get("trusted_aliases", ["reuters"]),
                 }
             )
+
+        if self.include_major_sources:
+            for feed in self.MAJOR_SEARCH_FEEDS:
+                feeds.append(
+                    {
+                        "name": feed["name"],
+                        "url": self._google_news_rss(feed["query"]),
+                        "category_hint": feed["category_hint"],
+                        "trusted_source": feed["trusted_source"],
+                        "trusted_aliases": feed.get("trusted_aliases", []),
+                    }
+                )
+            feeds.extend(self.MAJOR_DIRECT_FEEDS)
 
         if self.include_extra_sources and not self.reuters_only:
             feeds.extend(self.EXTRA_FEEDS)
@@ -235,23 +324,23 @@ class RSSProvider:
 
     def _is_trusted_item(self, feed, title, link, item_source):
         trusted_source = feed.get("trusted_source")
+        aliases = [alias.lower() for alias in feed.get("trusted_aliases", []) if alias]
 
-        if not trusted_source:
+        if not trusted_source and not aliases:
             return not self.reuters_only
 
-        text = f"{title} {link} {item_source}".lower()
+        text = f"{title} {link} {item_source} {feed.get('name', '')}".lower()
+        if trusted_source:
+            aliases.append(str(trusted_source).lower())
 
-        if trusted_source.lower() == "reuters":
-            return "reuters" in text
-
-        return trusted_source.lower() in text
+        return any(alias in text for alias in aliases)
 
     def _source_name(self, feed, item_source):
-        if feed.get("trusted_source") == "Reuters":
-            return "Reuters"
-
         if item_source:
             return item_source
+
+        if feed.get("trusted_source"):
+            return feed.get("trusted_source")
 
         return feed["name"]
 
@@ -270,7 +359,12 @@ class RSSProvider:
         return value.strip()
 
     def _clean_google_news_title(self, title):
-        return re.sub(r"\s+-\s+Reuters$", "", title).strip()
+        title = re.sub(r"\s+-\s+Reuters$", "", title).strip()
+        title = re.sub(r"\s+-\s+AP News$", "", title).strip()
+        title = re.sub(r"\s+-\s+NPR$", "", title).strip()
+        title = re.sub(r"\s+-\s+CNBC$", "", title).strip()
+        title = re.sub(r"\s+-\s+BBC$", "", title).strip()
+        return title
 
     def _parse_date(self, value):
         if not value:
@@ -304,11 +398,15 @@ class RSSProvider:
         return unique_items
 
     def _sort_items(self, items):
-        return sorted(
-            items,
-            key=lambda item: item.get("published_dt") or datetime.min,
-            reverse=True,
-        )
+        def sort_key(item):
+            value = item.get("published_dt")
+            if value is None:
+                return datetime.min.replace(tzinfo=timezone.utc)
+            if value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc)
+
+        return sorted(items, key=sort_key, reverse=True)
 
     def _env_bool(self, name, default=False):
         value = os.getenv(name)
