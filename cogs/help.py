@@ -2,16 +2,11 @@ import discord
 from discord.ext import commands
 
 
-VERSION = "MarketOps v2.2"
+VERSION = "MarketOps v2.5"
 
 
 class MarketOpsHelp(commands.Cog):
-    """Short command guide for MarketOps.
-
-    Plain English: this cog is the cheat sheet. The user can type !commands,
-    !help, or !cmds and get a quick reminder of what every command does and
-    which channel to use it in.
-    """
+    """Short command guide for MarketOps."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -39,24 +34,36 @@ class MarketOpsHelp(commands.Cog):
         )
 
         embed.add_field(
-            name="📌 Watchlist / Alerts",
+            name="📌 Shared Watchlist / Alerts",
             value=(
-                "`!watchlist` — show watched symbols → `#watchlist`\n"
-                "`!alerts` — scan price + headline alerts → `#watchlist`\n"
-                "`!watch TSLA` — add symbol → `#watchlist`\n"
-                "`!unwatch CVX` — remove symbol → `#watchlist`\n"
-                "`!watchreset` — reset saved list → `#watchlist`"
+                "`!watchlist` — show shared watched symbols → `#watchlist`\n"
+                "`!alerts` — scan shared price + headline alerts → `#watchlist`\n"
+                "`!watch TSLA` — add shared symbol → `#watchlist`\n"
+                "`!unwatch CVX` — remove shared symbol → `#watchlist`\n"
+                "`!threshold 2` — set shared alert percent → `#watchlist`"
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="⚙️ Alert Controls",
+            name="👤 Personal User Settings",
             value=(
-                "`!alertstatus` — show settings → `#watchlist`\n"
-                "`!alertson` / `!alertsoff` — turn alerts on/off → `#watchlist`\n"
-                "`!newson` / `!newsoff` — turn headline alerts on/off → `#watchlist`\n"
-                "`!threshold 2` — set price alert percent → `#watchlist`"
+                "`!mysettings` — show your personal setup → `#watchlist`\n"
+                "`!mytimezone America/Los_Angeles` — set your timezone → `#watchlist`\n"
+                "`!mybrief 05:30,09:30,13:15` — set your brief times → `#watchlist`\n"
+                "`!mythreshold 3` — set your own alert percent → `#watchlist`\n"
+                "`!mywatch TSLA` / `!myunwatch TSLA` — edit your list → `#watchlist`\n"
+                "`!mywatchlist` / `!myalerts` — check your personal list/alerts → `#watchlist`"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="⚙️ Shared Alert Controls",
+            value=(
+                "`!alertstatus` — show shared settings → `#watchlist`\n"
+                "`!alertson` / `!alertsoff` — turn shared alerts on/off → `#watchlist`\n"
+                "`!newson` / `!newsoff` — turn shared headline alerts on/off → `#watchlist`"
             ),
             inline=False,
         )
