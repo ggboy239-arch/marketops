@@ -40,33 +40,67 @@ class RedditProvider:
         self.subreddits = self._load_csv("REDDIT_SUBREDDITS", self.DEFAULT_SUBREDDITS)
         self.limit_per_subreddit = int(os.getenv("REDDIT_LIMIT_PER_SUBREDDIT", "1"))
         self.timeout = int(os.getenv("REDDIT_TIMEOUT_SECONDS", "10"))
-        self.request_delay_seconds = float(os.getenv("REDDIT_REQUEST_DELAY_SECONDS", "3"))
-        self.cache_minutes = int(os.getenv("REDDIT_CACHE_MINUTES", "15"))
+        self.request_delay_seconds = float(os.getenv("REDDIT_REQUEST_DELAY_SECONDS", "4"))
+        self.cache_minutes = int(os.getenv("REDDIT_CACHE_MINUTES", "30"))
+        self.rate_limit_minutes = int(os.getenv("REDDIT_RATE_LIMIT_BACKOFF_MINUTES", "60"))
         self._cache_items = []
         self._cache_time = None
+        self._blocked_until = {}
+        self._last_success_at = None
+        self._last_status = "Not checked yet"
+        self._last_rate_limited = []
         self.headers = {
-            "User-Agent": "MarketOpsRedditMonitor/0.7.2 by u/ggboy239",
+            "User-Agent": "MarketOpsRedditMonitor/0.7.5 by u/ggboy239",
             "Accept": "application/atom+xml, application/xml;q=0.9, */*;q=0.8",
         }
 
     def get_latest_news(self, limit=25):
         if not self.enabled:
+            self._last_status = "OFF"
             return []
 
         if self._cache_is_valid():
+            self._last_status = f"Using cached Reddit items ({len(self._cache_items)} cached)."
             return self._cache_items[:limit]
 
         items = []
+        checked = []
+        skipped = []
+        rate_limited = []
+
         for index, subreddit in enumerate(self.subreddits):
-            if index > 0:
+            if self._is_blocked(subreddit):
+                skipped.append(subreddit)
+                continue
+
+            if checked:
                 time.sleep(self.request_delay_seconds)
 
-            items.extend(self._fetch_subreddit(subreddit))
+            fetched = self._fetch_subreddit(subreddit)
+            checked.append(subreddit)
+            if self._is_blocked(subreddit):
+                rate_limited.append(subreddit)
+            items.extend(fetched)
 
         items = self._deduplicate(items)
         items = self._sort_items(items)
-        self._cache_items = items
-        self._cache_time = datetime.now(timezone.utc)
+
+        if items:
+            self._cache_items = items
+            self._cache_time = datetime.now(timezone.utc)
+            self._last_success_at = self._cache_time
+            self._last_status = f"OK — pulled {len(items)} Reddit chatter item(s)."
+        elif self._cache_items:
+            # If Reddit blocks us, keep showing the last cache instead of making the whole source look broken.
+            items = list(self._cache_items)
+            self._last_status = "Rate-limited/no new Reddit items — using last cached chatter."
+        elif skipped or rate_limited:
+            names = sorted(set(skipped + rate_limited))
+            self._last_status = "Rate-limited — cooling down: " + ", ".join(f"r/{name}" for name in names)
+        else:
+            self._last_status = "No Reddit items returned this check."
+
+        self._last_rate_limited = sorted(set(rate_limited + skipped))
         return items[:limit]
 
     def source_policy(self):
@@ -75,9 +109,28 @@ class RedditProvider:
 
         return (
             "Reddit monitor is ON. Reddit items are treated as chatter/watchlist leads, "
-            "not confirmed news, and are routed to #reddit-hot. Reddit RSS is rate-limited, "
-            "so MarketOps checks fewer subreddits and caches results."
+            "not confirmed news, and are routed to #reddit-hot. Reddit RSS can rate-limit; "
+            f"MarketOps now backs off for {self.rate_limit_minutes} minutes per blocked subreddit "
+            "instead of repeatedly spamming warnings."
         )
+
+    def status_text(self):
+        if not self.enabled:
+            return "Reddit: OFF (`REDDIT_ENABLED=false`)."
+
+        now = datetime.now(timezone.utc)
+        cooling = []
+        for subreddit, until in self._blocked_until.items():
+            if until > now:
+                minutes_left = max(1, int((until - now).total_seconds() // 60))
+                cooling.append(f"r/{subreddit} ({minutes_left}m)")
+
+        pieces = [f"Reddit: {self._last_status}"]
+        if cooling:
+            pieces.append("Cooling down: " + ", ".join(cooling[:6]))
+        if self._last_success_at:
+            pieces.append("Last success: " + self._time_label(self._last_success_at))
+        return "\n".join(pieces)
 
     def _fetch_subreddit(self, subreddit):
         url = f"https://www.reddit.com/r/{subreddit}/hot/.rss?limit={self.limit_per_subreddit}"
@@ -87,18 +140,38 @@ class RedditProvider:
 
             if response.status_code == 429:
                 retry_after = response.headers.get("Retry-After", "unknown")
+                self._block_subreddit(subreddit, retry_after)
                 print(
                     f"⚠️ Reddit rate limit from r/{subreddit}. "
-                    f"Skipping for now. Retry-After: {retry_after}"
+                    f"Cooling down for {self.rate_limit_minutes} min. Retry-After: {retry_after}"
                 )
                 return []
 
             response.raise_for_status()
+            self._blocked_until.pop(subreddit, None)
             return self._parse_feed(subreddit, response.text)
 
         except Exception as error:
             print(f"❌ Reddit RSS error from r/{subreddit}: {error}")
             return []
+
+    def _block_subreddit(self, subreddit, retry_after):
+        minutes = self.rate_limit_minutes
+        try:
+            retry_seconds = int(retry_after)
+            minutes = max(minutes, int(retry_seconds // 60) + 1)
+        except Exception:
+            pass
+        self._blocked_until[subreddit] = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+
+    def _is_blocked(self, subreddit):
+        until = self._blocked_until.get(subreddit)
+        if until is None:
+            return False
+        if until <= datetime.now(timezone.utc):
+            self._blocked_until.pop(subreddit, None)
+            return False
+        return True
 
     def _parse_feed(self, subreddit, text):
         root = ET.fromstring(text)
@@ -206,6 +279,12 @@ class RedditProvider:
             if cleaned:
                 values.append(cleaned)
         return values
+
+    def _time_label(self, dt):
+        try:
+            return dt.astimezone().strftime("%I:%M %p").lstrip("0")
+        except Exception:
+            return "unknown"
 
     def _env_bool(self, name, default=False):
         value = os.getenv(name)
