@@ -30,6 +30,7 @@ bot.remove_command("help")
 HELP_COMMANDS = {"commands", "help", "cmds", "ping"}
 
 COMMAND_CHANNELS = {
+    "status": ["bot-status"],
     "market": ["market-dashboard"],
     "brief": ["morning-brief"],
     "learn": ["market-school"],
@@ -132,6 +133,7 @@ async def load():
     await bot.load_extension("cogs.watchlist")
     await bot.load_extension("cogs.learn")
     await bot.load_extension("cogs.help")
+    await bot.load_extension("cogs.status")
 
 
 # --------------------
