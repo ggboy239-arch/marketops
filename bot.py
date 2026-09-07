@@ -12,9 +12,13 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+intents.reactions = True
+
+def _prefix(bot, message):
+    return "!"
 
 bot = commands.Bot(
-    command_prefix="!",
+    command_prefix=_prefix,
     intents=intents,
     case_insensitive=True,
 )
@@ -50,6 +54,8 @@ ADMIN_KEY_COMMANDS = [
     "renewals", "approverenew", "denyrenew",
 ]
 
+TICKET_COMMANDS = ["ticketpanel", "closeticket", "close"]
+
 COMMAND_CHANNELS = {
     "status": ["bot-status"],
     "market": ["market-dashboard"],
@@ -60,6 +66,9 @@ COMMAND_CHANNELS = {
     **{command: ["watchlist"] for command in PERSONAL_WATCHLIST_COMMANDS},
     **{command: ["redeem-access", "watchlist"] for command in ACCESS_CHANNEL_COMMANDS},
     **{command: ["admin-keys"] for command in ADMIN_KEY_COMMANDS},
+    "ticketpanel": ["marketops-commands", "admin-keys"],
+    "closeticket": ["admin-keys", "marketops-commands"],
+    "close": ["admin-keys", "marketops-commands"],
     "news": [
         "breaking-news",
         "general-news",
@@ -84,11 +93,15 @@ async def command_channel_check(ctx):
     if command_name in HELP_COMMANDS or invoked_name in HELP_COMMANDS:
         return True
 
+    # Ticket close must work inside created private ticket channels too.
+    current_channel = getattr(ctx.channel, "name", "")
+    if invoked_name in {"closeticket", "close"} and current_channel.startswith(("buy-", "renew-", "bug-", "ticket-")):
+        return True
+
     allowed_channels = COMMAND_CHANNELS.get(invoked_name) or COMMAND_CHANNELS.get(command_name)
     if not allowed_channels:
         return True
 
-    current_channel = getattr(ctx.channel, "name", "")
     if current_channel in allowed_channels:
         return True
 
@@ -146,6 +159,7 @@ async def load():
     await bot.load_extension("cogs.status")
     await bot.load_extension("cogs.users")
     await bot.load_extension("cogs.access")
+    await bot.load_extension("cogs.tickets")
 
 
 # --------------------
