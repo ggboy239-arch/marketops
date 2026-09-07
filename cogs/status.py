@@ -8,7 +8,7 @@ from discord.ext import commands
 from market.watchlist_engine import WatchlistEngine
 
 
-VERSION = "MarketOps v2.4.4"
+VERSION = "MarketOps v2.6"
 PT_ZONE = ZoneInfo("America/Los_Angeles")
 
 
