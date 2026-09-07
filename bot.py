@@ -68,10 +68,13 @@ CALENDAR_COMMANDS = [
     "calendaron", "calon", "calendaroff", "caloff",
 ]
 
-CHART_COMMANDS = [
-    "chart", "candlechart", "candles", "candlehelp", "ohlc",
-    "pulse", "fastmarket", "marketpulse",
-]
+PULSE_COMMANDS = ["pulse", "fastmarket", "marketpulse"]
+
+PUBLIC_CHART_COMMANDS = ["chart", "candlechart"]
+
+PRIVATE_CHART_COMMANDS = ["mychart", "privatechart", "dmchart"]
+
+CANDLE_LEARNING_COMMANDS = ["candles", "candlehelp", "ohlc"]
 
 COMMAND_CHANNELS = {
     "status": ["bot-status"],
@@ -85,7 +88,10 @@ COMMAND_CHANNELS = {
     **{command: ["admin-keys"] for command in ADMIN_KEY_COMMANDS},
     **{command: ["owner-audit"] for command in OWNER_AUDIT_COMMANDS},
     **{command: ["market-calendar"] for command in CALENDAR_COMMANDS},
-    **{command: ["market-dashboard", "market-school"] for command in CHART_COMMANDS},
+    **{command: ["market-dashboard"] for command in PULSE_COMMANDS},
+    **{command: ["market-charts"] for command in PUBLIC_CHART_COMMANDS},
+    **{command: ["market-charts", "watchlist"] for command in PRIVATE_CHART_COMMANDS},
+    **{command: ["market-school", "market-charts"] for command in CANDLE_LEARNING_COMMANDS},
     "ticketpanel": ["marketops-commands", "admin-keys"],
     "closeticket": ["admin-keys"],
     "close": ["admin-keys"],
@@ -108,6 +114,7 @@ def _clean_channel_name(channel_name):
     🔑 | redeem-access -> redeem-access
     🔒-owner-audit -> owner-audit
     🗓-market-calendar -> market-calendar
+    📈-market-charts -> market-charts
     marketops-commands -> marketops-commands
     """
     cleaned = (channel_name or "").strip().lower()
