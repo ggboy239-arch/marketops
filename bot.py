@@ -29,32 +29,25 @@ bot.remove_command("help")
 
 HELP_COMMANDS = {"commands", "help", "cmds", "ping"}
 
+WATCHLIST_CHANNEL_COMMANDS = [
+    "watchlist", "alerts", "watch", "unwatch", "watchreset", "alertstatus",
+    "alertson", "alertsoff", "newson", "newsoff", "threshold",
+    "profile", "settings", "mysettings", "timezone", "tz", "mytimezone",
+    "brief-times", "brieftimes", "mybrief", "alert-percent", "alertpercent",
+    "mythreshold", "add", "mywatch", "remove", "myunwatch", "reset-profile",
+    "myreset", "list", "mywatchlist", "scan", "myalerts", "redeem", "access",
+]
+
+ADMIN_KEY_COMMANDS = ["genkey", "adminkey", "genkeys", "revokekey", "adminusers"]
+
 COMMAND_CHANNELS = {
     "status": ["bot-status"],
     "market": ["market-dashboard"],
     "brief": ["morning-brief"],
     "learn": ["market-school"],
     "playbook": ["market-school"],
-    "watchlist": ["watchlist"],
-    "alerts": ["watchlist"],
-    "watch": ["watchlist"],
-    "unwatch": ["watchlist"],
-    "watchreset": ["watchlist"],
-    "alertstatus": ["watchlist"],
-    "alertson": ["watchlist"],
-    "alertsoff": ["watchlist"],
-    "newson": ["watchlist"],
-    "newsoff": ["watchlist"],
-    "threshold": ["watchlist"],
-    "mysettings": ["watchlist"],
-    "mytimezone": ["watchlist"],
-    "mybrief": ["watchlist"],
-    "mythreshold": ["watchlist"],
-    "mywatch": ["watchlist"],
-    "myunwatch": ["watchlist"],
-    "mywatchlist": ["watchlist"],
-    "myalerts": ["watchlist"],
-    "myreset": ["watchlist"],
+    **{command: ["watchlist"] for command in WATCHLIST_CHANNEL_COMMANDS},
+    **{command: ["bot-status", "watchlist"] for command in ADMIN_KEY_COMMANDS},
     "news": [
         "breaking-news",
         "general-news",
@@ -74,11 +67,12 @@ async def command_channel_check(ctx):
         return True
 
     command_name = ctx.command.name.lower()
+    invoked_name = (ctx.invoked_with or command_name).lower()
 
-    if command_name in HELP_COMMANDS:
+    if command_name in HELP_COMMANDS or invoked_name in HELP_COMMANDS:
         return True
 
-    allowed_channels = COMMAND_CHANNELS.get(command_name)
+    allowed_channels = COMMAND_CHANNELS.get(invoked_name) or COMMAND_CHANNELS.get(command_name)
     if not allowed_channels:
         return True
 
@@ -139,6 +133,7 @@ async def load():
     await bot.load_extension("cogs.help")
     await bot.load_extension("cogs.status")
     await bot.load_extension("cogs.users")
+    await bot.load_extension("cogs.access")
 
 
 # --------------------
