@@ -12,7 +12,7 @@ from discord.ext import commands, tasks
 from market.news_engine import NewsEngine
 
 
-VERSION = "MarketOps v0.7.3"
+VERSION = "MarketOps v0.7.4"
 
 
 class News(commands.Cog):
@@ -56,7 +56,11 @@ class News(commands.Cog):
         try:
             selected_category = category.value if category else "all"
             report = await asyncio.to_thread(self.news.get_top_news, limit=5, category=selected_category)
-            await interaction.followup.send(embed=self._build_news_embed(report))
+            await interaction.followup.send(
+                content=self._mobile_preview(selected_category, report.get("items", [])),
+                embed=self._build_news_embed(report),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
         except Exception as error:
             print(f"❌ /news error: {error}")
             await interaction.followup.send(
@@ -75,7 +79,7 @@ class News(commands.Cog):
             if category in ("channels", "channel"):
                 await ctx.send(embed=self._build_channel_map_embed())
                 return
-            if category in ("sources", "source", "reuters", "marketaux", "finlight", "reddit", "reddits"):
+            if category in ("sources", "source", "reuters", "marketaux", "finlight", "reddit", "reddits", "major"):
                 await ctx.send(embed=self._build_sources_embed())
                 return
             if category in ("debug", "debugs", "counts", "count"):
@@ -89,7 +93,11 @@ class News(commands.Cog):
                 return
 
             report = await asyncio.to_thread(self.news.get_top_news, limit=5, category=category)
-            await ctx.send(embed=self._build_news_embed(report))
+            await ctx.send(
+                content=self._mobile_preview(category, report.get("items", [])),
+                embed=self._build_news_embed(report),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
         except Exception as error:
             print(f"❌ !news error: {error}")
             await ctx.send("⚠️ MarketOps had trouble building the news report. Check the terminal for the error.")
@@ -158,7 +166,7 @@ class News(commands.Cog):
             if not items:
                 continue
 
-            channel = discord.utils.get(guild.text_channels, name=channel_name)
+            channel = self._find_text_channel(guild, channel_name)
             if channel is None:
                 missing_channels.append(channel_name)
                 continue
@@ -184,7 +192,11 @@ class News(commands.Cog):
                     "provider_used": report.get("provider_used", "Unknown"),
                 }
             )
-            await channel.send(embed=embed)
+            await channel.send(
+                content=self._mobile_preview(channel_name, items_to_post),
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
             posted_count += 1
 
         return posted_count, missing_channels
@@ -238,9 +250,47 @@ class News(commands.Cog):
         )
         return value[:997] + "..." if len(value) > 1000 else value
 
+    def _mobile_preview(self, category, items):
+        if not items:
+            return None
+
+        first = items[0]
+        title = self._safe_mobile_text(first.get("title", "Untitled"))
+        source = self._safe_mobile_text(first.get("source", "News"))
+        channel = first.get("channel") or str(category or "")
+        emoji = self._channel_emoji(channel)
+        extra = f" +{len(items) - 1} more" if len(items) > 1 else ""
+
+        # Keep this line plain text. No URL here, so mobile does not show ugly link popups.
+        return f"{emoji} MarketOps: {source} — {title[:140]}{extra}"
+
+    def _safe_mobile_text(self, value):
+        text = str(value or "").replace("\n", " ").replace("\r", " ").strip()
+        text = text.replace("@", "@\u200b")
+        return " ".join(text.split())
+
+    def _channel_emoji(self, channel):
+        channel = str(channel or "").lower()
+        if "breaking" in channel or "market" in channel:
+            return "🚨"
+        if "general" in channel:
+            return "🗞️"
+        if "ai" in channel or "tech" in channel:
+            return "🤖"
+        if "fed" in channel or "rate" in channel:
+            return "🏦"
+        if "geo" in channel or "oil" in channel:
+            return "🛢️"
+        if "crypto" in channel or "bitcoin" in channel:
+            return "₿"
+        if "reddit" in channel:
+            return "🧵"
+        return "📰"
+
     def _build_help_embed(self):
         embed = discord.Embed(title="📰 MarketOps News Help", description=self.news.category_help(), color=discord.Color.gold())
         embed.add_field(name="Live Auto-Posting", value="MarketOps checks for fresh items and routes them into the matching channels. Use `!news live` to check status.", inline=False)
+        embed.add_field(name="Mobile Notifications", value="Auto-posts include a clean plain-text headline before the embed so Discord mobile notifications show the headline.", inline=False)
         embed.set_footer(text=VERSION)
         return embed
 
@@ -254,10 +304,10 @@ class News(commands.Cog):
     def _build_sources_embed(self):
         embed = discord.Embed(title="✅ MarketOps News Source Policy", description=self.news.source_policy(), color=discord.Color.green())
         embed.add_field(name="Freshness Rule", value=self.news.freshness_policy(), inline=False)
-        embed.add_field(name="Free Provider Setup", value="Marketaux runs first when `MARKETAUX_API_KEY` is in `.env`. Reuters RSS is the backup. Reddit RSS routes to `#reddit-hot` only.", inline=False)
+        embed.add_field(name="Provider Setup", value="Marketaux runs first when available. Trusted RSS is the fallback and now includes Reuters plus major-source data points like AP/NPR/CNBC/BBC/Yahoo Finance. Reddit RSS routes to `#reddit-hot` only.", inline=False)
         embed.add_field(
             name="Recommended .env Settings",
-            value="`MARKETAUX_API_KEY=your_key_here`\n`NEWS_MAX_AGE_HOURS=1`\n`NEWS_LOOKBACK=2h`\n`NEWS_POLL_MINUTES=15`\n`NEWS_FALLBACK_RSS=true`\n`REDDIT_ENABLED=true`\n`REDDIT_SUBREDDITS=stocks,investing,wallstreetbets`\n`REDDIT_LIMIT_PER_SUBREDDIT=1`\n`REDDIT_CACHE_MINUTES=15`",
+            value="`NEWS_MAX_AGE_HOURS=1`\n`NEWS_LOOKBACK=2h`\n`NEWS_POLL_MINUTES=15`\n`NEWS_FALLBACK_RSS=true`\n`NEWS_INCLUDE_MAJOR_SOURCES=true`\n`REDDIT_ENABLED=true`\n`REDDIT_SUBREDDITS=stocks,investing,wallstreetbets`\n`REDDIT_LIMIT_PER_SUBREDDIT=1`\n`REDDIT_CACHE_MINUTES=15`",
             inline=False,
         )
         embed.set_footer(text=VERSION)
@@ -315,6 +365,7 @@ class News(commands.Cog):
             "general": "🗞 General News",
             "national": "🗞 General News",
             "world": "🗞 General News",
+            "usa": "🗞 General News",
             "general-news": "🗞 General News",
             "ai": "🤖 AI / Tech News",
             "tech": "🤖 AI / Tech News",
@@ -332,6 +383,22 @@ class News(commands.Cog):
             "social": "🧵 Reddit Hot",
         }
         return titles.get(category, f"📰 MarketOps News — {category}")
+
+    def _find_text_channel(self, guild, target_name):
+        target = self._clean_channel_name(target_name)
+        for channel in guild.text_channels:
+            if self._clean_channel_name(channel.name).endswith(target):
+                return channel
+        return None
+
+    def _clean_channel_name(self, channel_name):
+        cleaned = (channel_name or "").strip().lower()
+        for separator in ("|", "┃", "│"):
+            if separator in cleaned:
+                cleaned = cleaned.split(separator)[-1].strip()
+        while cleaned and not cleaned[0].isalnum():
+            cleaned = cleaned[1:].strip()
+        return cleaned.replace(" ", "-")
 
     def _env_bool(self, name, default=False):
         value = os.getenv(name)
