@@ -9,7 +9,7 @@ from discord.ext import commands, tasks
 from market.watchlist_engine import WatchlistEngine
 
 
-VERSION = "MarketOps v2.0"
+VERSION = "MarketOps v2.4"
 
 
 class Watchlist(commands.Cog):
@@ -36,31 +36,31 @@ class Watchlist(commands.Cog):
     async def watchlist_slash(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
         report = await asyncio.to_thread(self.watchlist.get_watchlist_report)
-        await interaction.followup.send(embed=self._build_watchlist_embed(report))
+        await interaction.followup.send(embed=self._build_watchlist_embed(report), suppress_embeds=True)
 
     @app_commands.command(name="alerts", description="Scan your watchlist for active alerts.")
     async def alerts_slash(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
         report = await asyncio.to_thread(self.watchlist.scan_alerts, True)
-        await interaction.followup.send(embed=self._build_alerts_embed(report))
+        await interaction.followup.send(embed=self._build_alerts_embed(report), suppress_embeds=True)
 
     @app_commands.command(name="watch", description="Add a ticker to your MarketOps watchlist.")
     async def watch_slash(self, interaction: discord.Interaction, symbol: str):
         await interaction.response.defer(thinking=True)
         result = await asyncio.to_thread(self.watchlist.add_symbol, symbol)
-        await interaction.followup.send(embed=self._build_change_embed("➕ Watchlist Updated", result))
+        await interaction.followup.send(embed=self._build_change_embed("➕ Watchlist Updated", result), suppress_embeds=True)
 
     @app_commands.command(name="unwatch", description="Remove a ticker from your MarketOps watchlist.")
     async def unwatch_slash(self, interaction: discord.Interaction, symbol: str):
         await interaction.response.defer(thinking=True)
         result = await asyncio.to_thread(self.watchlist.remove_symbol, symbol)
-        await interaction.followup.send(embed=self._build_change_embed("➖ Watchlist Updated", result))
+        await interaction.followup.send(embed=self._build_change_embed("➖ Watchlist Updated", result), suppress_embeds=True)
 
     @commands.command(name="watchlist")
     async def watchlist_prefix(self, ctx):
         try:
             report = await asyncio.to_thread(self.watchlist.get_watchlist_report)
-            await ctx.send(embed=self._build_watchlist_embed(report))
+            await ctx.send(embed=self._build_watchlist_embed(report), suppress_embeds=True)
         except Exception as error:
             print(f"❌ !watchlist error: {error}")
             await ctx.send("⚠️ MarketOps had trouble loading the watchlist. Check the terminal for the error.")
@@ -69,7 +69,7 @@ class Watchlist(commands.Cog):
     async def alerts_prefix(self, ctx):
         try:
             report = await asyncio.to_thread(self.watchlist.scan_alerts, True)
-            await ctx.send(embed=self._build_alerts_embed(report))
+            await ctx.send(embed=self._build_alerts_embed(report), suppress_embeds=True)
         except Exception as error:
             print(f"❌ !alerts error: {error}")
             await ctx.send("⚠️ MarketOps had trouble scanning alerts. Check the terminal for the error.")
@@ -77,17 +77,17 @@ class Watchlist(commands.Cog):
     @commands.command(name="watch")
     async def watch_prefix(self, ctx, symbol: str = ""):
         result = await asyncio.to_thread(self.watchlist.add_symbol, symbol)
-        await ctx.send(embed=self._build_change_embed("➕ Watchlist Updated", result))
+        await ctx.send(embed=self._build_change_embed("➕ Watchlist Updated", result), suppress_embeds=True)
 
     @commands.command(name="unwatch")
     async def unwatch_prefix(self, ctx, symbol: str = ""):
         result = await asyncio.to_thread(self.watchlist.remove_symbol, symbol)
-        await ctx.send(embed=self._build_change_embed("➖ Watchlist Updated", result))
+        await ctx.send(embed=self._build_change_embed("➖ Watchlist Updated", result), suppress_embeds=True)
 
     @commands.command(name="watchreset")
     async def watchreset_prefix(self, ctx):
         result = await asyncio.to_thread(self.watchlist.reset_symbols)
-        await ctx.send(embed=self._build_change_embed("🔄 Watchlist Reset", result))
+        await ctx.send(embed=self._build_change_embed("🔄 Watchlist Reset", result), suppress_embeds=True)
 
     @commands.command(name="alertstatus")
     async def alertstatus_prefix(self, ctx):
@@ -96,7 +96,7 @@ class Watchlist(commands.Cog):
             channel_name=self.channel_name,
             poll_minutes=self.poll_minutes,
         )
-        await ctx.send(embed=self._build_status_embed(status))
+        await ctx.send(embed=self._build_status_embed(status), suppress_embeds=True)
 
     @commands.command(name="alertson")
     async def alertson_prefix(self, ctx):
@@ -154,7 +154,7 @@ class Watchlist(commands.Cog):
                 if channel is None:
                     print(f"⚠️ Missing watchlist channel in {guild.name}: #{self.channel_name}")
                     continue
-                await channel.send(embed=self._build_alerts_embed(report))
+                await channel.send(embed=self._build_alerts_embed(report), suppress_embeds=True)
         except Exception as error:
             print(f"❌ Watchlist loop error: {error}")
 
@@ -242,8 +242,8 @@ class Watchlist(commands.Cog):
 
     def _alert_value(self, alert):
         if alert.get("type", "price") == "news":
-            link = alert.get("link", "")
-            open_line = f"\n[Open headline]({link})" if link else ""
+            link = self._clean_link(alert.get("link", ""))
+            open_line = f"\n🔗 [Open headline](<{link}>)" if link else ""
             return (
                 f'{alert.get("message", "News alert")}\n'
                 f'Trust: **{alert.get("quality_label", "Needs Confirmation")}** — {alert.get("quality_reason", "Verify before acting.")}\n'
@@ -252,6 +252,9 @@ class Watchlist(commands.Cog):
                 f"{open_line}"
             )
         return f'{alert.get("message", "Price alert")}\nWatch: {alert.get("watch", "Verify before acting.")}'
+
+    def _clean_link(self, link):
+        return (link or "").replace(" ", "%20").strip()
 
     def _env_bool(self, name, default=False):
         value = os.getenv(name)
