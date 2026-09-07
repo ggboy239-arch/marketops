@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 
-VERSION = "MarketOps v2.9.3"
+VERSION = "MarketOps v2.9.4"
 
 
 class MarketOpsHelp(commands.Cog):
@@ -27,7 +27,7 @@ class MarketOpsHelp(commands.Cog):
             value=(
                 "`!pulse` — shared fast snapshot → `#market-dashboard`\n"
                 "`!market` — full dashboard with gold/oil/VIX/rates/BTC → `#market-dashboard`\n"
-                "`!chart TSLA 5d` — public candlestick chart → `#market-charts`\n"
+                "`!chart TSLA 5d` / `!charts TSLA 5d` — public candlestick chart → `#market-charts`\n"
                 "`!mychart TSLA 5d` — private chart sent to your DMs → `#market-charts` or `#watchlist`\n"
                 "`!chart QQQ 1d` — 1-day intraday candles\n"
                 "`!chart GC=F 5d` — gold futures chart\n"
@@ -105,10 +105,10 @@ class MarketOpsHelp(commands.Cog):
             name="📱 Social / Video Monitor",
             value=(
                 "`!social` — social/video monitor status → `#x-news`, `#video-news`, or `#trending-news`\n"
-                "`!xnews` — raw configured X public-account posts → `#x-news`\n"
-                "`!videonews` — Bloomberg/CNBC/Reuters video RSS items → `#video-news`\n"
-                "`!trending` — configured X trending/fast-moving accounts → `#trending-news`\n"
-                "`!socialpost` — manually post routed social/video items"
+                "`!xnews` — raw configured X public-account posts → `#x-news` only\n"
+                "`!videonews` — Bloomberg/CNBC/Reuters video RSS items → `#video-news` only\n"
+                "`!trending` — configured X trending/fast-moving accounts → `#trending-news` only\n"
+                "`!socialpost` — manually post routed social/video items → social channels only"
             ),
             inline=False,
         )
@@ -143,7 +143,7 @@ class MarketOpsHelp(commands.Cog):
 
         embed.add_field(
             name="Best Flow",
-            value="`!pulse` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!xnews` → `!videonews`",
+            value="`!pulse` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!videonews` → optional `!xnews` later if X token is added",
             inline=False,
         )
 
