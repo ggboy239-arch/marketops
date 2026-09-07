@@ -54,8 +54,11 @@ SHARED_WATCHLIST_COMMANDS = [
 ADMIN_KEY_COMMANDS = [
     "genkey", "adminkey", "genkeys", "revokekey", "adminusers",
     "renewals", "approverenew", "denyrenew", "tickethelp", "ticketadmin",
-    "ticketlog", "keylog",
 ]
+
+OWNER_AUDIT_COMMANDS = ["ticketlog", "keylog"]
+
+CALENDAR_COMMANDS = ["calendar", "marketcalendar", "cal", "calendarhelp"]
 
 COMMAND_CHANNELS = {
     "status": ["bot-status"],
@@ -67,6 +70,8 @@ COMMAND_CHANNELS = {
     **{command: ["watchlist"] for command in PERSONAL_WATCHLIST_COMMANDS},
     **{command: ["redeem-access", "watchlist"] for command in ACCESS_CHANNEL_COMMANDS},
     **{command: ["admin-keys"] for command in ADMIN_KEY_COMMANDS},
+    **{command: ["owner-audit"] for command in OWNER_AUDIT_COMMANDS},
+    **{command: ["market-calendar"] for command in CALENDAR_COMMANDS},
     "ticketpanel": ["marketops-commands", "admin-keys"],
     "closeticket": ["admin-keys"],
     "close": ["admin-keys"],
@@ -87,13 +92,17 @@ def _clean_channel_name(channel_name):
 
     Examples:
     🔑 | redeem-access -> redeem-access
-    🧭┃marketops-commands -> marketops-commands
+    🔒-owner-audit -> owner-audit
+    🗓-market-calendar -> market-calendar
     marketops-commands -> marketops-commands
     """
     cleaned = (channel_name or "").strip().lower()
     for separator in ("|", "┃", "│"):
         if separator in cleaned:
             cleaned = cleaned.split(separator)[-1].strip()
+    # Also handle emoji-prefix channels that use a dash, like 🔒-owner-audit.
+    while cleaned and not cleaned[0].isalnum():
+        cleaned = cleaned[1:].strip()
     return cleaned.replace(" ", "-")
 
 
@@ -189,6 +198,7 @@ async def load():
     await bot.load_extension("cogs.access")
     await bot.load_extension("cogs.tickets")
     await bot.load_extension("cogs.logs")
+    await bot.load_extension("cogs.calendar")
 
 
 # --------------------
