@@ -1,3 +1,4 @@
+import math
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -71,39 +72,44 @@ class MarketService:
         }
 
     def _change(self, snapshot, key):
-        try:
-            return float(snapshot[key]["change_percent"])
-        except (KeyError, TypeError, ValueError):
+        quote = snapshot.get(key, {})
+        if quote.get("status") == "Unavailable":
             return 0
+
+        value = self._safe_percent(quote.get("change_percent"))
+        if value is None:
+            return 0
+
+        return value
 
     def _format_asset(self, quote):
         if quote["status"] == "Unavailable":
-            return f'{quote["symbol"]}\nUnavailable'
+            return f'{quote["symbol"]}\nUnavailable / no fresh data'
 
         price = self._format_price(quote["price"], quote["kind"])
+        change_text = self._format_change(quote)
 
         value = (
             f'{quote["symbol"]}\n'
             f'Price: **{price}**\n'
-            f'Today: **{quote["change_percent"]:+.2f}%**\n'
+            f'Today: **{change_text}**\n'
             f'Status: {quote["status"]}'
         )
 
-        if quote["status"] == "Futures":
+        if quote.get("stale"):
+            value += "\nNote: **stale/no fresh intraday data**"
+        elif quote["status"] == "Futures":
             value += "\nAfter Market: **Live futures / overnight price**"
 
         if quote["extended_price"] is not None:
             extended_label = quote["status"]
             extended_price = self._format_price(quote["extended_price"], quote["kind"])
-            extended_change = quote["extended_change_percent"]
+            extended_change = self._safe_percent(quote["extended_change_percent"])
 
             if extended_change is None:
                 value += f'\n{extended_label}: **{extended_price}**'
             else:
-                value += (
-                    f'\n{extended_label}: **{extended_price}** '
-                    f'({extended_change:+.2f}%)'
-                )
+                value += f'\n{extended_label}: **{extended_price}** ({extended_change:+.2f}%)'
 
         return value
 
@@ -124,46 +130,63 @@ class MarketService:
 
     def _find_equity_leader(self, snapshot):
         allowed = ["market", "tech"]
-        key, quote = max(
-            ((key, snapshot[key]) for key in allowed),
-            key=lambda item: item[1].get("change_percent", 0),
-        )
+        valid = [(key, snapshot[key]) for key in allowed if self._safe_percent(snapshot[key].get("change_percent")) is not None]
 
-        return f'{quote["label"]} ({quote["change_percent"]:+.2f}%)'
+        if not valid:
+            return "No fresh S&P/Nasdaq data"
+
+        key, quote = max(valid, key=lambda item: self._safe_percent(item[1].get("change_percent")) or 0)
+        return f'{quote["label"]} ({self._format_change(quote)})'
 
     def _find_equity_weakest(self, snapshot):
         allowed = ["market", "tech"]
-        key, quote = min(
-            ((key, snapshot[key]) for key in allowed),
-            key=lambda item: item[1].get("change_percent", 0),
-        )
+        valid = [(key, snapshot[key]) for key in allowed if self._safe_percent(snapshot[key].get("change_percent")) is not None]
 
-        return f'{quote["label"]} ({quote["change_percent"]:+.2f}%)'
+        if not valid:
+            return "No fresh S&P/Nasdaq data"
+
+        key, quote = min(valid, key=lambda item: self._safe_percent(item[1].get("change_percent")) or 0)
+        return f'{quote["label"]} ({self._format_change(quote)})'
 
     def _find_warning_signal(self, snapshot):
         warning_keys = ["fear", "dollar", "rates"]
-        key, quote = max(
-            ((key, snapshot[key]) for key in warning_keys),
-            key=lambda item: item[1].get("change_percent", 0),
-        )
+        valid = [(key, snapshot[key]) for key in warning_keys if self._safe_percent(snapshot[key].get("change_percent")) is not None]
 
-        return f'{quote["label"]} ({quote["change_percent"]:+.2f}%)'
+        if not valid:
+            return "No fresh fear/rates/dollar data"
+
+        key, quote = max(valid, key=lambda item: self._safe_percent(item[1].get("change_percent")) or 0)
+        return f'{quote["label"]} ({self._format_change(quote)})'
 
     def _format_signal(self, snapshot, key):
         quote = snapshot[key]
-        return f'{quote["label"]} ({quote["change_percent"]:+.2f}%)'
+        return f'{quote["label"]} ({self._format_change(quote)})'
+
+    def _format_change(self, quote):
+        if quote.get("status") == "Unavailable":
+            return "unavailable"
+
+        value = self._safe_percent(quote.get("change_percent"))
+        if value is None:
+            return "no fresh % data"
+
+        if quote.get("stale") and abs(value) < 0.005:
+            return "flat / no fresh move"
+
+        return f"{value:+.2f}%"
 
     def _after_market_note(self, snapshot):
-        futures = [
-            snapshot["market"]["symbol"],
-            snapshot["tech"]["symbol"],
-            snapshot["oil"]["symbol"],
-        ]
+        futures = [snapshot["market"]["symbol"], snapshot["tech"]["symbol"], snapshot["oil"]["symbol"]]
+
+        stale_keys = [quote["label"] for quote in snapshot.values() if quote.get("stale")]
+        stale_note = ""
+        if stale_keys:
+            stale_note = " Some symbols may show stale/no fresh intraday data outside active sessions."
 
         return (
-            f'{", ".join(futures)} show live futures / overnight pricing. '
-            "BTC trades 24/7. VIX, Dollar, and US10Y may stay closed outside "
-            "regular market hours."
+            f'{", ".join(futures)} show futures / overnight pricing when available. '
+            "BTC trades 24/7. VIX, Dollar, and US10Y may stay closed outside regular market hours."
+            f"{stale_note}"
         )
 
     def _detect_theme(self, market, tech, fear, oil, bitcoin):
@@ -186,6 +209,17 @@ class MarketService:
             return "📉 Defensive Market"
 
         return "📈 Live Market"
+
+    def _safe_percent(self, value):
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return None
+
+        if math.isnan(result) or math.isinf(result):
+            return None
+
+        return result
 
     def _timestamp(self):
         now = datetime.now(ZoneInfo("America/Los_Angeles"))
