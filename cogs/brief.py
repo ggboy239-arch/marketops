@@ -10,17 +10,12 @@ from discord.ext import commands, tasks
 from market.brief_engine import BriefEngine
 
 
-VERSION = "MarketOps v2.4"
+VERSION = "MarketOps v2.4.1"
 PT_ZONE = ZoneInfo("America/Los_Angeles")
 
 
 class Brief(commands.Cog):
-    """Discord commands and schedule for the MarketOps brief.
-
-    This file is the Discord side of the brief.
-    It listens for !brief and /brief, and it can auto-post the brief on a
-    Pacific Time schedule from the .env file.
-    """
+    """Discord commands and schedule for the MarketOps brief."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -37,17 +32,12 @@ class Brief(commands.Cog):
         if self.scheduled_brief_loop.is_running():
             self.scheduled_brief_loop.cancel()
 
-    @app_commands.command(
-        name="brief",
-        description="View the MarketOps brief.",
-    )
+    @app_commands.command(name="brief", description="View the MarketOps brief.")
     async def brief_slash(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
-
         try:
             brief = await asyncio.to_thread(self.brief_engine.build_brief)
-            embed = self._build_brief_embed(brief)
-            await interaction.followup.send(embed=embed, suppress_embeds=True)
+            await interaction.followup.send(embed=self._build_brief_embed(brief))
         except Exception as error:
             print(f"❌ /brief error: {error}")
             await interaction.followup.send(
@@ -57,26 +47,18 @@ class Brief(commands.Cog):
 
     @commands.command(name="brief")
     async def brief_prefix(self, ctx, action="now"):
-        """Desktop/web fallback command.
-
-        Type !brief for the brief.
-        Type !brief schedule to see the Pacific Time auto-post setup.
-        """
         try:
             action = (action or "now").lower().strip()
 
             if action in ("schedule", "time", "times", "status"):
-                await ctx.send(embed=self._build_schedule_embed(), suppress_embeds=True)
+                await ctx.send(embed=self._build_schedule_embed())
                 return
 
             brief = await asyncio.to_thread(self.brief_engine.build_brief)
-            embed = self._build_brief_embed(brief)
-            await ctx.send(embed=embed, suppress_embeds=True)
+            await ctx.send(embed=self._build_brief_embed(brief))
         except Exception as error:
             print(f"❌ !brief error: {error}")
-            await ctx.send(
-                "⚠️ MarketOps had trouble building the brief. Check the terminal for the error."
-            )
+            await ctx.send("⚠️ MarketOps had trouble building the brief. Check the terminal for the error.")
 
     @tasks.loop(seconds=30)
     async def scheduled_brief_loop(self):
@@ -103,8 +85,7 @@ class Brief(commands.Cog):
 
             try:
                 brief = await asyncio.to_thread(self.brief_engine.build_brief)
-                embed = self._build_brief_embed(brief)
-                await channel.send(embed=embed, suppress_embeds=True)
+                await channel.send(embed=self._build_brief_embed(brief))
                 print(f"🌅 Posted scheduled brief to #{self.brief_channel_name} at {current_time} PT.")
             except Exception as error:
                 print(f"❌ Scheduled brief error: {error}")
@@ -129,11 +110,7 @@ class Brief(commands.Cog):
             inline=False,
         )
 
-        embed.add_field(
-            name="Why?",
-            value=self._format_reasons(dashboard.get("reasons", [])),
-            inline=False,
-        )
+        embed.add_field(name="Why?", value=self._format_reasons(dashboard.get("reasons", [])), inline=False)
 
         embed.add_field(
             name="⚡ Fast Market Check",
@@ -158,11 +135,7 @@ class Brief(commands.Cog):
         ]
 
         for name, key, reddit in sections:
-            embed.add_field(
-                name=name,
-                value=self._format_item(top_items.get(key), reddit=reddit),
-                inline=False,
-            )
+            embed.add_field(name=name, value=self._format_item(top_items.get(key), reddit=reddit), inline=False)
 
         embed.add_field(
             name="🎯 What To Watch",
@@ -194,11 +167,7 @@ class Brief(commands.Cog):
         embed.add_field(name="Brief Times PT", value=f"`{times}`", inline=False)
         embed.add_field(
             name="Recommended Times",
-            value=(
-                "`05:30` pre-market setup\n"
-                "`09:30` mid-morning check\n"
-                "`13:15` after-close recap"
-            ),
+            value="`05:30` pre-market setup\n`09:30` mid-morning check\n`13:15` after-close recap",
             inline=False,
         )
         embed.set_footer(text=VERSION)
@@ -260,10 +229,8 @@ class Brief(commands.Cog):
 
     def _env_bool(self, name, default=False):
         value = os.getenv(name)
-
         if value is None:
             return default
-
         return value.strip().lower() in ("1", "true", "yes", "y", "on")
 
 
