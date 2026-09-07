@@ -46,6 +46,15 @@ COMMAND_CHANNELS = {
     "newson": ["watchlist"],
     "newsoff": ["watchlist"],
     "threshold": ["watchlist"],
+    "mysettings": ["watchlist"],
+    "mytimezone": ["watchlist"],
+    "mybrief": ["watchlist"],
+    "mythreshold": ["watchlist"],
+    "mywatch": ["watchlist"],
+    "myunwatch": ["watchlist"],
+    "mywatchlist": ["watchlist"],
+    "myalerts": ["watchlist"],
+    "myreset": ["watchlist"],
     "news": [
         "breaking-news",
         "general-news",
@@ -60,12 +69,7 @@ COMMAND_CHANNELS = {
 
 @bot.check
 async def command_channel_check(ctx):
-    """Keep commands in their correct Discord channels.
-
-    Plain English: before a prefix command runs, this checks the channel name.
-    If the command belongs somewhere else, the bot gives a short reminder and
-    stops the command from running.
-    """
+    """Keep commands in their correct Discord channels."""
     if ctx.guild is None or ctx.command is None:
         return True
 
@@ -134,6 +138,7 @@ async def load():
     await bot.load_extension("cogs.learn")
     await bot.load_extension("cogs.help")
     await bot.load_extension("cogs.status")
+    await bot.load_extension("cogs.users")
 
 
 # --------------------
