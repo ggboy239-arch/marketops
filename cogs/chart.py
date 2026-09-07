@@ -14,7 +14,7 @@ import yfinance as yf
 from market.market_service import MarketService
 
 
-VERSION = "MarketOps v2.9.1"
+VERSION = "MarketOps v2.9.4"
 
 
 class Chart(commands.Cog):
@@ -58,7 +58,7 @@ class Chart(commands.Cog):
         self.bot = bot
         self.market = MarketService()
 
-    @commands.command(name="chart", aliases=["candlechart"])
+    @commands.command(name="chart", aliases=["charts", "candlechart"])
     async def chart_prefix(self, ctx, symbol: str = "SPY", period: str = "5d"):
         """Public chart. Everyone in #market-charts can see it."""
         try:
@@ -68,14 +68,23 @@ class Chart(commands.Cog):
                 return
 
             file = discord.File(result["image"], filename=result["filename"])
-            await ctx.send(
-                content=result["mobile_text"],
-                embed=result["embed"],
-                file=file,
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
+            try:
+                await ctx.send(
+                    content=result["mobile_text"],
+                    embed=result["embed"],
+                    file=file,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            except discord.Forbidden:
+                await ctx.send(
+                    "⚠️ I built the chart, but Discord blocked me from posting the image. "
+                    "In `#market-charts`, turn ON **Attach Files**, **Embed Links**, **Send Messages**, and **Read Message History** for the MarketOps Bot role."
+                )
+            except discord.HTTPException as error:
+                print(f"❌ Discord could not upload chart image: {error}")
+                await ctx.send("⚠️ I built the chart, but Discord could not upload the image file. Check bot/channel Attach Files permission.")
         except Exception as error:
-            print(f"❌ !chart error: {error}")
+            print(f"❌ !chart error: {error!r}")
             await ctx.send("⚠️ MarketOps had trouble building that chart. Check the terminal for the error.")
 
     @commands.command(name="mychart", aliases=["privatechart", "dmchart"])
@@ -101,7 +110,7 @@ class Chart(commands.Cog):
                     "⚠️ I could not DM you. Turn on DMs for this server, or use `!chart SYMBOL PERIOD` in `#market-charts`."
                 )
         except Exception as error:
-            print(f"❌ !mychart error: {error}")
+            print(f"❌ !mychart error: {error!r}")
             await ctx.send("⚠️ MarketOps had trouble building your private chart. Check the terminal for the error.")
 
     @commands.command(name="candles", aliases=["candlehelp", "ohlc"])
@@ -114,7 +123,7 @@ class Chart(commands.Cog):
             dashboard = await asyncio.to_thread(self.market.get_dashboard)
             await ctx.send(embed=self._pulse_embed(dashboard))
         except Exception as error:
-            print(f"❌ !pulse error: {error}")
+            print(f"❌ !pulse error: {error!r}")
             await ctx.send("⚠️ MarketOps had trouble building the fast pulse. Check the terminal for the error.")
 
     def _build_chart(self, raw_symbol, raw_period, private=False):
@@ -273,7 +282,7 @@ class Chart(commands.Cog):
     def _candles_help_embed(self):
         embed = discord.Embed(
             title="🕯️ Candlestick Basics — Open / High / Low / Close",
-            description="Use this before reading `!chart TSLA`, `!mychart TSLA`, `!chart SPY`, or `!chart GC=F`.",
+            description="Use this before reading `!chart TSLA`, `!charts TSLA`, `!mychart TSLA`, `!chart SPY`, or `!chart GC=F`.",
             color=discord.Color.gold(),
         )
         embed.add_field(
@@ -307,7 +316,7 @@ class Chart(commands.Cog):
         embed.add_field(
             name="Public vs Private",
             value=(
-                "`!chart TSLA 5d` posts publicly in `#market-charts`.\n"
+                "`!chart TSLA 5d` or `!charts TSLA 5d` posts publicly in `#market-charts`.\n"
                 "`!mychart TSLA 5d` sends the chart to your DMs so each user gets their own chart privately."
             ),
             inline=False,
@@ -316,7 +325,7 @@ class Chart(commands.Cog):
             name="How To Use It",
             value=(
                 "One candle alone is not enough. Check the last few candles, trend direction, news, calendar risk, and whether the next candle confirms.\n\n"
-                "Examples: `!chart TSLA 1d`, `!mychart QQQ 5d`, `!chart GC=F 1mo`, `!pulse`."
+                "Examples: `!chart TSLA 1d`, `!charts QQQ 5d`, `!mychart QQQ 5d`, `!chart GC=F 1mo`, `!pulse`."
             ),
             inline=False,
         )
