@@ -17,6 +17,7 @@ class FinnhubProvider:
         "tech": {"symbol": "NQ=F", "label": "🤖 Nasdaq Futures", "kind": "futures"},
         "fear": {"symbol": "^VIX", "label": "😨 Fear", "kind": "number"},
         "oil": {"symbol": "CL=F", "label": "🛢 Oil", "kind": "futures_money"},
+        "gold": {"symbol": "GC=F", "label": "🥇 Gold", "kind": "futures_money"},
         "dollar": {"symbol": "DX-Y.NYB", "label": "💵 Dollar", "kind": "number"},
         "rates": {"symbol": "^TNX", "label": "🏦 US10Y", "kind": "yield"},
         "bitcoin": {"symbol": "BTC-USD", "label": "₿ Bitcoin", "kind": "crypto"},
