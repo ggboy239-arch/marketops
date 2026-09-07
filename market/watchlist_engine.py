@@ -43,6 +43,8 @@ class WatchlistEngine:
         "SPY": "S&P 500 ETF",
         "QQQ": "Nasdaq 100 ETF",
         "BTC-USD": "Bitcoin",
+        "BTC": "Bitcoin",
+        "ETH": "Ethereum",
     }
 
     NEWS_TERMS = {
@@ -58,6 +60,13 @@ class WatchlistEngine:
         "BTC-USD": ["btc", "bitcoin", "crypto"],
         "BTC": ["btc", "bitcoin", "crypto"],
         "ETH": ["eth", "ethereum", "ether", "crypto"],
+        "TSLA": ["tsla", "tesla"],
+        "PLTR": ["pltr", "palantir"],
+        "AAPL": ["aapl", "apple"],
+        "MSFT": ["msft", "microsoft"],
+        "GOOGL": ["googl", "google", "alphabet"],
+        "META": ["meta", "facebook", "instagram"],
+        "AMZN": ["amzn", "amazon", "aws"],
     }
 
     HIGH_TRUST_SOURCES = [
@@ -132,6 +141,7 @@ class WatchlistEngine:
         self.enabled = self._env_bool("WATCHLIST_ENABLED", default=True)
         self.news_enabled = self._env_bool("WATCHLIST_NEWS_ALERTS", default=True)
         self.rss_news_fallback = self._env_bool("WATCHLIST_NEWS_RSS_FALLBACK", default=True)
+        self.symbol_store_path = Path("data/watchlist_symbols.json")
         self.symbols = self._load_symbols()
         self.move_threshold = float(os.getenv("WATCHLIST_MOVE_ALERT_PERCENT", "3"))
         self.news_max_items = int(os.getenv("WATCHLIST_NEWS_MAX_ITEMS", "15"))
@@ -152,7 +162,74 @@ class WatchlistEngine:
             "quotes": quotes,
             "move_threshold": self.move_threshold,
             "news_enabled": self.news_enabled,
+            "storage": str(self.symbol_store_path),
             "updated": self._timestamp(),
+        }
+
+    def add_symbol(self, symbol):
+        clean_symbol = self._normalize_symbol(symbol)
+
+        if not clean_symbol:
+            return {
+                "ok": False,
+                "message": "Give me a ticker symbol, like !watch TSLA.",
+                "symbols": self.symbols,
+            }
+
+        if clean_symbol in self.symbols:
+            return {
+                "ok": True,
+                "changed": False,
+                "message": f"{clean_symbol} is already on your watchlist.",
+                "symbols": self.symbols,
+            }
+
+        self.symbols.append(clean_symbol)
+        self._save_symbols()
+
+        return {
+            "ok": True,
+            "changed": True,
+            "message": f"Added {clean_symbol} to your watchlist.",
+            "symbols": self.symbols,
+        }
+
+    def remove_symbol(self, symbol):
+        clean_symbol = self._normalize_symbol(symbol)
+
+        if not clean_symbol:
+            return {
+                "ok": False,
+                "message": "Give me a ticker symbol, like !unwatch CVX.",
+                "symbols": self.symbols,
+            }
+
+        if clean_symbol not in self.symbols:
+            return {
+                "ok": True,
+                "changed": False,
+                "message": f"{clean_symbol} was not on your watchlist.",
+                "symbols": self.symbols,
+            }
+
+        self.symbols = [item for item in self.symbols if item != clean_symbol]
+        self._save_symbols()
+
+        return {
+            "ok": True,
+            "changed": True,
+            "message": f"Removed {clean_symbol} from your watchlist.",
+            "symbols": self.symbols,
+        }
+
+    def reset_symbols(self):
+        self.symbols = self._env_symbols() or list(self.DEFAULT_SYMBOLS)
+        self._save_symbols()
+        return {
+            "ok": True,
+            "changed": True,
+            "message": "Watchlist reset to your .env/default symbols.",
+            "symbols": self.symbols,
         }
 
     def scan_alerts(self, force=False):
@@ -419,7 +496,7 @@ class WatchlistEngine:
     def _watch_note(self, symbol, change_percent):
         upper = symbol.upper()
 
-        if upper in ("NVDA", "AMD", "QQQ"):
+        if upper in ("NVDA", "AMD", "QQQ", "TSLA", "PLTR"):
             return "Watch Nasdaq futures, AI headlines, chip news, and volume."
 
         if upper in ("RTX", "LMT"):
@@ -431,8 +508,8 @@ class WatchlistEngine:
         if upper == "TSN":
             return "Watch company news, food/labor headlines, and abnormal volume."
 
-        if "BTC" in upper:
-            return "Watch Bitcoin, crypto headlines, ETF flows, and risk appetite."
+        if "BTC" in upper or "ETH" in upper:
+            return "Watch crypto headlines, ETF flows, Coinbase, and risk appetite."
 
         if upper in ("SPY", "DIA", "IWM"):
             return "Watch VIX, rates, Fed headlines, and broad market breadth."
@@ -442,7 +519,7 @@ class WatchlistEngine:
     def _news_watch_note(self, symbol):
         upper = symbol.upper()
 
-        if upper in ("NVDA", "AMD"):
+        if upper in ("NVDA", "AMD", "TSLA", "PLTR"):
             return "Confirm if this is AI/chip demand, earnings, guidance, or analyst news."
         if upper in ("RTX", "LMT"):
             return "Confirm if this connects to defense spending, war, missiles, or contracts."
@@ -452,23 +529,74 @@ class WatchlistEngine:
             return "Confirm if this is company-specific, food inflation, labor, plant, or demand news."
         if upper in ("SPY", "QQQ"):
             return "Check futures, VIX, rates, and whether this is broad market-moving news."
-        if "BTC" in upper:
-            return "Check BTC price, ETF flows, Coinbase, and broader risk appetite."
+        if "BTC" in upper or "ETH" in upper:
+            return "Check crypto price, ETF flows, Coinbase, and broader risk appetite."
         return "Verify the headline and check price/volume reaction before acting."
 
     def _load_symbols(self):
+        saved_symbols = self._saved_symbols()
+        if saved_symbols:
+            return saved_symbols
+
+        return self._env_symbols() or list(self.DEFAULT_SYMBOLS)
+
+    def _env_symbols(self):
         raw = os.getenv("WATCHLIST_SYMBOLS")
 
         if not raw:
-            return list(self.DEFAULT_SYMBOLS)
+            return []
 
         symbols = []
         for item in raw.split(","):
-            symbol = item.strip().upper()
+            symbol = self._normalize_symbol(item)
             if symbol and symbol not in symbols:
                 symbols.append(symbol)
 
-        return symbols or list(self.DEFAULT_SYMBOLS)
+        return symbols
+
+    def _saved_symbols(self):
+        if not self.symbol_store_path.exists():
+            return []
+
+        try:
+            with self.symbol_store_path.open("r", encoding="utf-8") as file:
+                data = json.load(file)
+        except Exception:
+            return []
+
+        raw_symbols = data.get("symbols", []) if isinstance(data, dict) else []
+        symbols = []
+
+        for item in raw_symbols:
+            symbol = self._normalize_symbol(item)
+            if symbol and symbol not in symbols:
+                symbols.append(symbol)
+
+        return symbols
+
+    def _save_symbols(self):
+        self.symbol_store_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "symbols": self.symbols,
+            "updated": self._timestamp(),
+            "note": "Created by MarketOps !watch / !unwatch commands.",
+        }
+
+        with self.symbol_store_path.open("w", encoding="utf-8") as file:
+            json.dump(payload, file, indent=2)
+
+    def _normalize_symbol(self, symbol):
+        clean = (symbol or "").strip().upper()
+        clean = clean.replace("$", "")
+        clean = clean.replace(" ", "")
+
+        aliases = {
+            "BTCUSD": "BTC-USD",
+            "BITCOIN": "BTC-USD",
+            "ETHUSD": "ETH-USD",
+            "ETHEREUM": "ETH-USD",
+        }
+        return aliases.get(clean, clean)
 
     def _load_alert_memory(self):
         if not self.alert_store_path.exists():
@@ -501,9 +629,6 @@ class WatchlistEngine:
 
         return result
 
-    def _contains_any(self, text, terms):
-        return any(term in text for term in terms)
-
     def _matches_any(self, text, terms):
         return any(self._term_match(text, term) for term in terms)
 
@@ -512,10 +637,14 @@ class WatchlistEngine:
         if not clean:
             return False
 
-        if " " in clean or "-" in clean:
+        if " " in clean or "-" in clean or "&" in clean:
             return clean in text
 
         return f" {clean} " in f" {text} "
+
+    def _contains_any(self, text, terms):
+        value = text or ""
+        return any(term in value for term in terms)
 
     def _dedupe_news_items(self, items):
         seen = set()
