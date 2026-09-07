@@ -19,6 +19,7 @@ class MarketService:
         tech_change = self._change(snapshot, "tech")
         fear_change = self._change(snapshot, "fear")
         oil_change = self._change(snapshot, "oil")
+        gold_change = self._change(snapshot, "gold")
         dollar_change = self._change(snapshot, "dollar")
         rates_change = self._change(snapshot, "rates")
         bitcoin_change = self._change(snapshot, "bitcoin")
@@ -37,8 +38,9 @@ class MarketService:
         equity_weakest = self._find_equity_weakest(snapshot)
         warning_signal = self._find_warning_signal(snapshot)
         energy_signal = self._format_signal(snapshot, "oil", include_price=True)
+        gold_signal = self._format_signal(snapshot, "gold", include_price=True)
         crypto_signal = self._format_signal(snapshot, "bitcoin", include_price=True)
-        theme = self._detect_theme(market_change, tech_change, fear_change, oil_change, bitcoin_change)
+        theme = self._detect_theme(market_change, tech_change, fear_change, oil_change, gold_change, bitcoin_change)
 
         return {
             "risk": risk["mood"],
@@ -50,6 +52,7 @@ class MarketService:
             "loser": equity_weakest,
             "warning_signal": warning_signal,
             "energy_signal": energy_signal,
+            "gold_signal": gold_signal,
             "crypto_signal": crypto_signal,
             "after_market_note": self._after_market_note(snapshot),
             "updated": self._timestamp(),
@@ -58,6 +61,7 @@ class MarketService:
                 "tech": self._format_asset(snapshot["tech"]),
                 "fear": self._format_asset(snapshot["fear"]),
                 "oil": self._format_asset(snapshot["oil"]),
+                "gold": self._format_asset(snapshot["gold"]),
                 "dollar": self._format_asset(snapshot["dollar"]),
                 "rates": self._format_asset(snapshot["rates"]),
                 "bitcoin": self._format_asset(snapshot["bitcoin"]),
@@ -139,9 +143,9 @@ class MarketService:
         return f'{quote["label"]} ({self._format_change(quote)})'
 
     def _find_warning_signal(self, snapshot):
-        valid = self._fresh_quotes(snapshot, ["fear", "dollar", "rates"])
+        valid = self._fresh_quotes(snapshot, ["fear", "dollar", "rates", "gold"])
         if not valid:
-            return "No fresh fear/rates/dollar data"
+            return "No fresh fear/rates/dollar/gold data"
 
         key, quote = max(valid, key=lambda item: self._safe_percent(item[1].get("change_percent")) or 0)
         return f'{quote["label"]} ({self._format_change(quote)})'
@@ -189,7 +193,7 @@ class MarketService:
         return f"{value:+.2f}%"
 
     def _after_market_note(self, snapshot):
-        futures = [snapshot["market"]["symbol"], snapshot["tech"]["symbol"], snapshot["oil"]["symbol"]]
+        futures = [snapshot["market"]["symbol"], snapshot["tech"]["symbol"], snapshot["oil"]["symbol"], snapshot["gold"]["symbol"]]
         stale_keys = [quote["label"] for quote in snapshot.values() if quote.get("stale")]
         stale_note = ""
 
@@ -202,11 +206,13 @@ class MarketService:
             f"{stale_note}"
         )
 
-    def _detect_theme(self, market, tech, fear, oil, bitcoin):
+    def _detect_theme(self, market, tech, fear, oil, gold, bitcoin):
         if oil >= 2:
             return "🛢 Oil / Geopolitics"
         if fear >= 5:
             return "😨 Volatility / Fear"
+        if gold >= 1.25 and market < 0:
+            return "🥇 Safety / Gold Bid"
         if tech > market + 0.30 and tech > 0:
             return "🤖 Tech / AI"
         if bitcoin >= 2:
