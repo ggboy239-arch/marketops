@@ -100,7 +100,7 @@ COMMAND_CHANNELS = {
     **{command: ["market-charts"] for command in PUBLIC_CHART_COMMANDS},
     **{command: ["market-charts", "watchlist"] for command in PRIVATE_CHART_COMMANDS},
     **{command: ["market-school", "market-charts"] for command in CANDLE_LEARNING_COMMANDS},
-    **{command: ["x-news", "video-news", "trending-news", "general-news"] for command in SOCIAL_COMMANDS},
+    **{command: ["x-news", "video-news", "trending-news"] for command in SOCIAL_COMMANDS},
     "ticketpanel": ["marketops-commands", "admin-keys"],
     "closeticket": ["admin-keys"],
     "close": ["admin-keys"],
