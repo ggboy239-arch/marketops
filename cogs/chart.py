@@ -8,21 +8,21 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+from matplotlib.ticker import FuncFormatter
 import pandas as pd
 import yfinance as yf
 
 from market.market_service import MarketService
 
 
-VERSION = "MarketOps v2.9.4"
+VERSION = "MarketOps v2.9.5"
 
 
 class Chart(commands.Cog):
     """Candlestick charts and fast market pulse.
 
-    Plain English: this turns MarketOps from just headlines into price action.
-    Public charts go in #market-charts. Private per-user charts use !mychart and
-    are sent by DM so everyone is not forced to see the same ticker request.
+    Plain English: public charts go in #market-charts. Private per-user charts
+    use !mychart and are sent by DM.
     """
 
     PERIODS = {
@@ -54,6 +54,17 @@ class Chart(commands.Cog):
         "10Y": "^TNX",
     }
 
+    GREEN = "#22c55e"
+    RED = "#ef4444"
+    GOLD = "#f59e0b"
+    BLUE = "#38bdf8"
+    BG = "#070b14"
+    PANEL = "#0f172a"
+    GRID = "#334155"
+    TEXT = "#e5e7eb"
+    MUTED = "#94a3b8"
+    BORDER = "#1e293b"
+
     def __init__(self, bot):
         self.bot = bot
         self.market = MarketService()
@@ -81,7 +92,7 @@ class Chart(commands.Cog):
                     "In `#market-charts`, turn ON **Attach Files**, **Embed Links**, **Send Messages**, and **Read Message History** for the MarketOps Bot role."
                 )
             except discord.HTTPException as error:
-                print(f"❌ Discord could not upload chart image: {error}")
+                print(f"❌ Discord could not upload chart image: {error!r}")
                 await ctx.send("⚠️ I built the chart, but Discord could not upload the image file. Check bot/channel Attach Files permission.")
         except Exception as error:
             print(f"❌ !chart error: {error!r}")
@@ -104,7 +115,7 @@ class Chart(commands.Cog):
                     file=file,
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
-                await ctx.send(f"✅ Sent your private `{result['symbol']}` candlestick chart to your DMs.")
+                await ctx.send(f"✅ Sent your private `{result['symbol']}` premium chart to your DMs.")
             except discord.Forbidden:
                 await ctx.send(
                     "⚠️ I could not DM you. Turn on DMs for this server, or use `!chart SYMBOL PERIOD` in `#market-charts`."
@@ -145,7 +156,7 @@ class Chart(commands.Cog):
         if history is None or history.empty:
             return {"ok": False, "message": f"⚠️ No chart data found for `{symbol}`."}
 
-        history = self._clean_history(history).tail(80)
+        history = self._clean_history(history).tail(90)
         if history.empty:
             return {"ok": False, "message": f"⚠️ No usable OHLC candles found for `{symbol}`."}
 
@@ -156,7 +167,12 @@ class Chart(commands.Cog):
         change = candle["close"] - previous_close
         change_percent = (change / previous_close * 100) if previous_close else 0
 
-        image = self._make_candle_image(history, symbol, settings["label"])
+        image = self._make_candle_image(
+            history=history,
+            symbol=symbol,
+            label=settings["label"],
+            change_percent=change_percent,
+        )
         embed = self._chart_embed(symbol, settings["label"], candle, change, change_percent, len(history), private)
         mobile_text = self._mobile_text(symbol, candle, change_percent, private)
 
@@ -172,28 +188,61 @@ class Chart(commands.Cog):
     def _clean_history(self, history):
         if isinstance(history.columns, pd.MultiIndex):
             history.columns = history.columns.get_level_values(0)
+
         required = ["Open", "High", "Low", "Close"]
         for column in required:
             if column not in history.columns:
                 return pd.DataFrame()
-        return history[required].dropna()
 
-    def _make_candle_image(self, history, symbol, label):
-        fig, ax = plt.subplots(figsize=(10, 5))
+        keep = list(required)
+        if "Volume" in history.columns:
+            keep.append("Volume")
+
+        clean = history[keep].dropna(subset=required).copy()
+        if "Volume" not in clean.columns:
+            clean["Volume"] = 0
+        clean["Volume"] = clean["Volume"].fillna(0)
+        return clean
+
+    def _make_candle_image(self, history, symbol, label, change_percent):
+        closes = history["Close"].astype(float)
+        has_volume = "Volume" in history.columns and float(history["Volume"].fillna(0).sum()) > 0
+
+        if has_volume:
+            fig, (ax, volume_ax) = plt.subplots(
+                2,
+                1,
+                figsize=(12.8, 7.2),
+                sharex=True,
+                gridspec_kw={"height_ratios": [4.2, 1.1], "hspace": 0.04},
+            )
+        else:
+            fig, ax = plt.subplots(figsize=(12.8, 6.4))
+            volume_ax = None
+
+        fig.patch.set_facecolor(self.BG)
+        ax.set_facecolor(self.PANEL)
+        if volume_ax is not None:
+            volume_ax.set_facecolor(self.PANEL)
+
         width = 0.62
+        candle_colors = []
 
         for index, (_, row) in enumerate(history.iterrows()):
             open_price = float(row["Open"])
             high_price = float(row["High"])
             low_price = float(row["Low"])
             close_price = float(row["Close"])
-            color = "green" if close_price >= open_price else "red"
+            is_green = close_price >= open_price
+            color = self.GREEN if is_green else self.RED
+            candle_colors.append(color)
 
-            ax.vlines(index, low_price, high_price, linewidth=1, color=color)
+            ax.vlines(index, low_price, high_price, linewidth=1.35, color=color, alpha=0.95)
             lower = min(open_price, close_price)
             height = abs(close_price - open_price)
+
             if height <= 0:
-                ax.hlines(close_price, index - width / 2, index + width / 2, linewidth=1.2, color=color)
+                ax.hlines(close_price, index - width / 2, index + width / 2, linewidth=1.6, color=color)
             else:
                 ax.add_patch(
                     Rectangle(
@@ -202,17 +251,131 @@ class Chart(commands.Cog):
                         height,
                         facecolor=color,
                         edgecolor=color,
-                        alpha=0.75,
+                        alpha=0.88,
+                        linewidth=0.8,
                     )
                 )
 
-        ax.set_title(f"MarketOps Candlestick Chart — {symbol} ({label})")
-        ax.set_ylabel("Price")
-        ax.grid(True, alpha=0.25)
-        ax.set_xlim(-1, len(history))
+        if len(closes) >= 9:
+            ax.plot(range(len(history)), closes.rolling(9).mean(), color=self.BLUE, linewidth=1.45, alpha=0.95, label="MA 9")
+        if len(closes) >= 21:
+            ax.plot(range(len(history)), closes.rolling(21).mean(), color=self.GOLD, linewidth=1.45, alpha=0.95, label="MA 21")
 
-        step = max(1, len(history) // 6)
+        last_close = float(closes.iloc[-1])
+        last_color = self.GREEN if change_percent >= 0 else self.RED
+        ax.axhline(last_close, color=last_color, linewidth=1.0, linestyle="--", alpha=0.78)
+        ax.text(
+            len(history) + 0.15,
+            last_close,
+            f" {self._price(last_close)} ",
+            va="center",
+            ha="left",
+            color=self.TEXT,
+            fontsize=9,
+            fontweight="bold",
+            bbox={"boxstyle": "round,pad=0.25", "facecolor": last_color, "edgecolor": "none", "alpha": 0.95},
+        )
+
+        high_series = history["High"].astype(float)
+        low_series = history["Low"].astype(float)
+        high_pos = int(high_series.values.argmax())
+        low_pos = int(low_series.values.argmin())
+        high_value = float(high_series.iloc[high_pos])
+        low_value = float(low_series.iloc[low_pos])
+        price_range = max(high_value - low_value, max(abs(last_close) * 0.01, 1))
+
+        ax.annotate(
+            f"H {self._price(high_value)}",
+            xy=(high_pos, high_value),
+            xytext=(high_pos, high_value + price_range * 0.06),
+            color=self.TEXT,
+            fontsize=8,
+            ha="center",
+            arrowprops={"arrowstyle": "-", "color": self.MUTED, "lw": 0.8},
+        )
+        ax.annotate(
+            f"L {self._price(low_value)}",
+            xy=(low_pos, low_value),
+            xytext=(low_pos, low_value - price_range * 0.08),
+            color=self.TEXT,
+            fontsize=8,
+            ha="center",
+            arrowprops={"arrowstyle": "-", "color": self.MUTED, "lw": 0.8},
+        )
+
+        if volume_ax is not None:
+            volumes = history["Volume"].fillna(0).astype(float)
+            for index, volume in enumerate(volumes):
+                volume_ax.bar(index, volume, color=candle_colors[index], alpha=0.35, width=0.62)
+            volume_ax.set_ylabel("VOL", color=self.MUTED, fontsize=8)
+            volume_ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: self._short_number(y)))
+            self._style_axis(volume_ax, show_x=True)
+        else:
+            self._style_axis(ax, show_x=True)
+
+        self._style_axis(ax, show_x=False)
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: self._price(y)))
+        ax.yaxis.tick_right()
+        ax.yaxis.set_label_position("right")
+        ax.set_ylabel("PRICE", color=self.MUTED, fontsize=8)
+        ax.set_xlim(-1, len(history) + 4)
+
+        if ax.get_legend_handles_labels()[0]:
+            legend = ax.legend(
+                loc="upper left",
+                frameon=True,
+                facecolor=self.PANEL,
+                edgecolor=self.BORDER,
+                labelcolor=self.TEXT,
+                fontsize=8,
+            )
+            legend.get_frame().set_alpha(0.65)
+
+        target_ax = volume_ax if volume_ax is not None else ax
+        self._set_time_labels(target_ax, history)
+
+        close_color = self.GREEN if change_percent >= 0 else self.RED
+        fig.text(0.04, 0.965, f"{symbol}  •  MARKETOPS PRO CHART", color=self.TEXT, fontsize=18, fontweight="bold")
+        fig.text(
+            0.04,
+            0.928,
+            f"{label}  •  Last {self._price(last_close)}  •  {change_percent:+.2f}%  •  MA 9 / MA 21  •  Volume",
+            color=close_color,
+            fontsize=10,
+            fontweight="bold",
+        )
+        fig.text(
+            0.04,
+            0.025,
+            "Candles: green closes above open, red closes below open. Use with news, volume, calendar risk, and confirmation.",
+            color=self.MUTED,
+            fontsize=8,
+        )
+
+        fig.subplots_adjust(top=0.88, bottom=0.13, left=0.055, right=0.92)
+
+        output = BytesIO()
+        fig.savefig(output, format="png", dpi=160, facecolor=fig.get_facecolor())
+        plt.close(fig)
+        output.seek(0)
+        return output
+
+    def _style_axis(self, ax, show_x):
+        ax.grid(True, color=self.GRID, alpha=0.23, linewidth=0.75)
+        ax.tick_params(axis="x", colors=self.MUTED, labelsize=8)
+        ax.tick_params(axis="y", colors=self.MUTED, labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_color(self.BORDER)
+            spine.set_linewidth(0.8)
+        if not show_x:
+            ax.tick_params(labelbottom=False)
+
+    def _set_time_labels(self, ax, history):
+        step = max(1, len(history) // 7)
         ticks = list(range(0, len(history), step))
+        if ticks and ticks[-1] != len(history) - 1:
+            ticks.append(len(history) - 1)
+
         labels = []
         for tick in ticks:
             index_value = history.index[tick]
@@ -220,15 +383,9 @@ class Chart(commands.Cog):
                 labels.append(index_value.strftime("%m/%d %H:%M"))
             except Exception:
                 labels.append(str(index_value)[:10])
-        ax.set_xticks(ticks)
-        ax.set_xticklabels(labels, rotation=30, ha="right")
 
-        fig.tight_layout()
-        output = BytesIO()
-        fig.savefig(output, format="png", dpi=140)
-        plt.close(fig)
-        output.seek(0)
-        return output
+        ax.set_xticks(ticks)
+        ax.set_xticklabels(labels, rotation=0, ha="center", color=self.MUTED)
 
     def _chart_embed(self, symbol, period_label, candle, change, change_percent, candle_count, private=False):
         candle_color = self._candle_color(candle)
@@ -236,47 +393,31 @@ class Chart(commands.Cog):
         lower_wick = min(candle["open"], candle["close"]) - candle["low"]
         body = abs(candle["close"] - candle["open"])
 
-        title_prefix = "🔒 Private" if private else "📈 MarketOps"
+        title_prefix = "🔒 Private" if private else "📈 MarketOps Pro"
         embed = discord.Embed(
             title=f"{title_prefix} Chart — {symbol}",
-            description=f"Candlestick chart with open/high/low/close explanation. Period: **{period_label}**.",
+            description=f"Premium candlestick chart with volume, MA 9/21, last-price line, and high/low markers. Period: **{period_label}**.",
             color=discord.Color.green() if candle_color == "Green" else discord.Color.red() if candle_color == "Red" else discord.Color.gold(),
         )
         embed.add_field(
-            name="Latest Candle OHLC",
+            name="Latest Candle",
             value=(
-                f"Open: **{self._money(candle['open'])}**\n"
-                f"High: **{self._money(candle['high'])}**\n"
-                f"Low: **{self._money(candle['low'])}**\n"
-                f"Close: **{self._money(candle['close'])}**"
+                f"Open **{self._price(candle['open'])}** • High **{self._price(candle['high'])}**\n"
+                f"Low **{self._price(candle['low'])}** • Close **{self._price(candle['close'])}**"
             ),
-            inline=True,
+            inline=False,
         )
         embed.add_field(
             name="Move",
-            value=(
-                f"Change vs prior candle: **{change:+.2f}** / **{change_percent:+.2f}%**\n"
-                f"Candle: **{candle_color}**\n"
-                f"Candles shown: **{candle_count}**"
-            ),
-            inline=True,
-        )
-        embed.add_field(
-            name="Body + Wicks",
-            value=(
-                f"Body size: **{body:.2f}**\n"
-                f"Upper wick: **{upper_wick:.2f}**\n"
-                f"Lower wick: **{lower_wick:.2f}**"
-            ),
+            value=f"Prior-candle move: **{change:+.2f}** / **{change_percent:+.2f}%** • Candle: **{candle_color}** • Shown: **{candle_count}**",
             inline=False,
         )
-        embed.add_field(name="Candle Read", value=self._candle_read(candle, body, upper_wick, lower_wick), inline=False)
         embed.add_field(
-            name="Next Check",
-            value="Compare this with news, calendar risk, volume, support/resistance, and whether the next candle confirms or rejects the move.",
+            name="Candle Read",
+            value=self._candle_read(candle, body, upper_wick, lower_wick),
             inline=False,
         )
-        embed.set_footer(text=f"Candles are educational, not financial advice • {VERSION}")
+        embed.set_footer(text=f"Charts are educational, not financial advice • {VERSION}")
         return embed
 
     def _candles_help_embed(self):
@@ -317,14 +458,14 @@ class Chart(commands.Cog):
             name="Public vs Private",
             value=(
                 "`!chart TSLA 5d` or `!charts TSLA 5d` posts publicly in `#market-charts`.\n"
-                "`!mychart TSLA 5d` sends the chart to your DMs so each user gets their own chart privately."
+                "`!mychart TSLA 5d` sends the chart to your DMs."
             ),
             inline=False,
         )
         embed.add_field(
             name="How To Use It",
             value=(
-                "One candle alone is not enough. Check the last few candles, trend direction, news, calendar risk, and whether the next candle confirms.\n\n"
+                "One candle alone is not enough. Check trend, volume, news, calendar risk, and whether the next candle confirms.\n\n"
                 "Examples: `!chart TSLA 1d`, `!charts QQQ 5d`, `!mychart QQQ 5d`, `!chart GC=F 1mo`, `!pulse`."
             ),
             inline=False,
@@ -381,26 +522,45 @@ class Chart(commands.Cog):
     def _candle_read(self, candle, body, upper_wick, lower_wick):
         color = self._candle_color(candle)
         if color == "Green" and body > upper_wick and body > lower_wick:
-            return "Buyers controlled this candle because price closed above the open and the body is bigger than the wicks."
+            return "Buyers controlled the latest candle: close finished above open and body is stronger than the wicks."
         if color == "Red" and body > upper_wick and body > lower_wick:
-            return "Sellers controlled this candle because price closed below the open and the body is bigger than the wicks."
+            return "Sellers controlled the latest candle: close finished below open and body is stronger than the wicks."
         if upper_wick > body * 1.5 and upper_wick > lower_wick:
-            return "Price pushed higher but got rejected. Sellers or profit-taking showed up near the top of the candle."
+            return "Price pushed higher but got rejected near the top. Watch for profit-taking or resistance."
         if lower_wick > body * 1.5 and lower_wick > upper_wick:
-            return "Price pushed lower but buyers defended it. This can show demand near the lower price area."
-        return "Mixed candle. Do not read it alone. Wait for the next candle and compare with trend, volume, and news."
+            return "Price pushed lower but buyers defended it. Watch for demand/support."
+        return "Mixed candle. Do not read it alone. Wait for confirmation from the next candles, volume, and news."
 
     def _mobile_text(self, symbol, candle, change_percent, private=False):
         privacy = "Private" if private else "Public"
         color = self._candle_color(candle)
-        return f"📈 MarketOps {privacy} Chart: {symbol} — Close {self._money(candle['close'])} — {change_percent:+.2f}% — {color} candle"
+        return f"📈 MarketOps Pro {privacy} Chart: {symbol} — Close {self._price(candle['close'])} — {change_percent:+.2f}% — {color}"
 
     def _normalize_symbol(self, value):
         clean = (value or "SPY").strip().upper().replace("$", "")
         return self.SYMBOL_ALIASES.get(clean, clean)
 
-    def _money(self, value):
+    def _price(self, value):
+        try:
+            value = float(value)
+        except Exception:
+            return "N/A"
+        if abs(value) >= 1000:
+            return f"${value:,.0f}"
         return f"${value:,.2f}"
+
+    def _short_number(self, value):
+        try:
+            value = float(value)
+        except Exception:
+            return "0"
+        if abs(value) >= 1_000_000_000:
+            return f"{value / 1_000_000_000:.1f}B"
+        if abs(value) >= 1_000_000:
+            return f"{value / 1_000_000:.1f}M"
+        if abs(value) >= 1_000:
+            return f"{value / 1_000:.0f}K"
+        return f"{value:.0f}"
 
     def _safe_float(self, value):
         try:
