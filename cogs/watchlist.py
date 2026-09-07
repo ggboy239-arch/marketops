@@ -9,7 +9,7 @@ from discord.ext import commands, tasks
 from market.watchlist_engine import WatchlistEngine
 
 
-VERSION = "MarketOps v1.0"
+VERSION = "MarketOps v1.1"
 
 
 class Watchlist(commands.Cog):
@@ -121,7 +121,7 @@ class Watchlist(commands.Cog):
     def _build_watchlist_embed(self, report):
         embed = discord.Embed(
             title="📌 MarketOps Watchlist",
-            description="Symbols MarketOps is watching for bigger moves.",
+            description="Symbols MarketOps is watching for bigger moves and fresh headlines.",
             color=discord.Color.blue(),
         )
 
@@ -138,8 +138,13 @@ class Watchlist(commands.Cog):
             embed.add_field(name="Current Watchlist", value=value, inline=False)
 
         embed.add_field(
-            name="Alert Rule",
+            name="Price Alert Rule",
             value=f'Alert when a symbol moves **±{report.get("move_threshold", 3):g}%** or more.',
+            inline=False,
+        )
+        embed.add_field(
+            name="News Alert Rule",
+            value="Ticker/company headlines are scanned when WATCHLIST_NEWS_ALERTS=true.",
             inline=False,
         )
 
@@ -149,7 +154,7 @@ class Watchlist(commands.Cog):
     def _build_alerts_embed(self, report):
         embed = discord.Embed(
             title="🚨 MarketOps Watchlist Alerts",
-            description="Large moves from your watchlist.",
+            description="Price moves and fresh ticker headlines from your watchlist.",
             color=discord.Color.red(),
         )
 
@@ -164,19 +169,46 @@ class Watchlist(commands.Cog):
         elif not alerts:
             embed.add_field(
                 name="No active alerts",
-                value=f'No symbol moved ±{report.get("move_threshold", 3):g}% or more right now.',
+                value=(
+                    f'No symbol moved ±{report.get("move_threshold", 3):g}% or more, '
+                    "and no fresh ticker headline was found right now."
+                ),
                 inline=False,
             )
         else:
             for alert in alerts[:10]:
-                embed.add_field(
-                    name=f'{alert["emoji"]} {alert["symbol"]} Alert',
-                    value=f'{alert["message"]}\nWatch: {alert["watch"]}',
-                    inline=False,
-                )
+                if alert.get("type") == "news":
+                    embed.add_field(
+                        name=f'📰 {alert["symbol"]} News Alert',
+                        value=self._format_news_alert(alert),
+                        inline=False,
+                    )
+                else:
+                    embed.add_field(
+                        name=f'{alert["emoji"]} {alert["symbol"]} Price Alert',
+                        value=f'{alert["message"]}\nWatch: {alert["watch"]}',
+                        inline=False,
+                    )
 
+        embed.add_field(
+            name="News Provider",
+            value=report.get("news_provider", "Not checked yet"),
+            inline=False,
+        )
         embed.set_footer(text=f'Checked {report.get("updated", "Unknown")} • {VERSION}')
         return embed
+
+    def _format_news_alert(self, alert):
+        link = alert.get("link", "")
+        open_line = f"\n[Read headline]({link})" if link else ""
+        return (
+            f'{alert["message"]}\n'
+            f'Source: {alert.get("source", "Unknown")} • '
+            f'Provider: {alert.get("provider", "Unknown")} • '
+            f'Age: {alert.get("age", "Unknown")}\n'
+            f'Watch: {alert["watch"]}'
+            f'{open_line}'
+        )
 
     def _env_bool(self, name, default=False):
         value = os.getenv(name)
