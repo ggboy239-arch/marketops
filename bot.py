@@ -29,13 +29,20 @@ bot.remove_command("help")
 
 HELP_COMMANDS = {"commands", "help", "cmds", "ping"}
 
-WATCHLIST_CHANNEL_COMMANDS = [
+ACCESS_CHANNEL_COMMANDS = [
+    "redeem", "access", "profile", "settings", "mysettings",
+]
+
+PERSONAL_WATCHLIST_COMMANDS = [
+    "timezone", "tz", "mytimezone", "brief-times", "brieftimes", "mybrief",
+    "alert-percent", "alertpercent", "mythreshold", "add", "mywatch",
+    "remove", "myunwatch", "reset-profile", "myreset", "list", "mywatchlist",
+    "scan", "myalerts",
+]
+
+SHARED_WATCHLIST_COMMANDS = [
     "watchlist", "alerts", "watch", "unwatch", "watchreset", "alertstatus",
     "alertson", "alertsoff", "newson", "newsoff", "threshold",
-    "profile", "settings", "mysettings", "timezone", "tz", "mytimezone",
-    "brief-times", "brieftimes", "mybrief", "alert-percent", "alertpercent",
-    "mythreshold", "add", "mywatch", "remove", "myunwatch", "reset-profile",
-    "myreset", "list", "mywatchlist", "scan", "myalerts", "redeem", "access",
 ]
 
 ADMIN_KEY_COMMANDS = ["genkey", "adminkey", "genkeys", "revokekey", "adminusers"]
@@ -46,8 +53,10 @@ COMMAND_CHANNELS = {
     "brief": ["morning-brief"],
     "learn": ["market-school"],
     "playbook": ["market-school"],
-    **{command: ["watchlist"] for command in WATCHLIST_CHANNEL_COMMANDS},
-    **{command: ["bot-status", "watchlist"] for command in ADMIN_KEY_COMMANDS},
+    **{command: ["watchlist"] for command in SHARED_WATCHLIST_COMMANDS},
+    **{command: ["watchlist"] for command in PERSONAL_WATCHLIST_COMMANDS},
+    **{command: ["redeem-access", "watchlist"] for command in ACCESS_CHANNEL_COMMANDS},
+    **{command: ["admin-keys"] for command in ADMIN_KEY_COMMANDS},
     "news": [
         "breaking-news",
         "general-news",
