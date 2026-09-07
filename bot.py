@@ -30,7 +30,7 @@ bot.remove_command("help")
 HELP_COMMANDS = {"commands", "help", "cmds", "ping"}
 
 ACCESS_CHANNEL_COMMANDS = [
-    "redeem", "access", "profile", "settings", "mysettings",
+    "redeem", "renew", "access", "profile", "settings", "mysettings",
 ]
 
 PERSONAL_WATCHLIST_COMMANDS = [
@@ -45,7 +45,10 @@ SHARED_WATCHLIST_COMMANDS = [
     "alertson", "alertsoff", "newson", "newsoff", "threshold",
 ]
 
-ADMIN_KEY_COMMANDS = ["genkey", "adminkey", "genkeys", "revokekey", "adminusers"]
+ADMIN_KEY_COMMANDS = [
+    "genkey", "adminkey", "genkeys", "revokekey", "adminusers",
+    "renewals", "approverenew", "denyrenew",
+]
 
 COMMAND_CHANNELS = {
     "status": ["bot-status"],
