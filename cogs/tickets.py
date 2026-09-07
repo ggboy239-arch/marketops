@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 
 
-VERSION = "MarketOps v2.7"
+VERSION = "MarketOps v2.7.1"
 
 
 class Tickets(commands.Cog):
@@ -83,9 +83,66 @@ class Tickets(commands.Cog):
         self.panels.add(str(message.id))
         self._save_panels()
 
+    @commands.command(name="tickethelp", aliases=["ticketadmin"])
+    async def tickethelp_prefix(self, ctx):
+        if not self._is_admin(ctx):
+            await ctx.send("⚠️ Only a server admin can view the ticket admin helper.")
+            return
+
+        embed = discord.Embed(
+            title="🛠️ MarketOps Ticket/Admin Helper",
+            description="Private admin cheat sheet. Use this in `#admin-keys` only.",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(
+            name="Post Ticket Panel",
+            value="Go to `#marketops-commands` and type `!ticketpanel` once. Users click 💳, 🔁, or 🐛.",
+            inline=False,
+        )
+        embed.add_field(
+            name="New Buyer Flow",
+            value=(
+                "1. User clicks 💳 and pays.\n"
+                f"2. Confirm PayPal F&F `{self.paypal}` or Cash App `{self.cashapp}`.\n"
+                "3. Run `!genkey monthly 30` or `!genkey trial 7`.\n"
+                "4. Give the key to the user.\n"
+                "5. User goes to `#redeem-access` and types `!redeem KEY-HERE`."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Renewal Flow",
+            value=(
+                "1. User clicks 🔁 and pays.\n"
+                "2. User submits `!renew KEY-HERE` in `#redeem-access`.\n"
+                "3. Confirm payment.\n"
+                "4. Run `!approverenew REQUEST-ID` or `!denyrenew REQUEST-ID`.\n"
+                "5. Use `!renewals` to see pending requests."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Key/Admin Commands",
+            value=(
+                "`!genkey beta 30`\n"
+                "`!genkeys monthly 30 5`\n"
+                "`!revokekey KEY-HERE`\n"
+                "`!adminusers`\n"
+                "`!renewals`"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Ticket Commands",
+            value="`!closeticket` or `!close` inside a ticket when finished.",
+            inline=False,
+        )
+        embed.set_footer(text=VERSION)
+        await ctx.send(embed=embed)
+
     @commands.command(name="closeticket", aliases=["close"])
     async def closeticket_prefix(self, ctx):
-        if not ctx.channel.name.startswith(("ticket-", "buy-", "renew-", "bug-")):
+        if not ctx.channel.name.startswith(("ticket-", "buy-", "renew-", "bug-", "support-")):
             await ctx.send("⚠️ This command only works inside a MarketOps ticket channel.")
             return
         if not self._is_admin(ctx):
@@ -135,7 +192,7 @@ class Tickets(commands.Cog):
 
         ticket_channel = await self._create_ticket_channel(guild, member, ticket_info)
         if ticket_channel is None:
-            admin_channel = discord.utils.get(guild.text_channels, name=self.admin_channel_name)
+            admin_channel = self._find_text_channel(guild, self.admin_channel_name)
             if admin_channel:
                 await admin_channel.send(
                     f"{self._admin_ping(guild)} Ticket requested by {member.mention}, but I could not create a private channel. "
@@ -148,7 +205,7 @@ class Tickets(commands.Cog):
             embed=self._ticket_embed(member, ticket_info),
         )
 
-        admin_channel = discord.utils.get(guild.text_channels, name=self.admin_channel_name)
+        admin_channel = self._find_text_channel(guild, self.admin_channel_name)
         if admin_channel:
             await admin_channel.send(
                 content=self._admin_ping(guild),
@@ -156,7 +213,7 @@ class Tickets(commands.Cog):
             )
 
     async def _create_ticket_channel(self, guild, member, ticket_info):
-        category = discord.utils.get(guild.categories, name=self.ticket_category_name)
+        category = self._find_category(guild, self.ticket_category_name)
         if category is None:
             try:
                 category = await guild.create_category(self.ticket_category_name)
@@ -246,7 +303,8 @@ class Tickets(commands.Cog):
     def _find_existing_ticket(self, guild, member, prefix):
         suffix = str(member.id)[-4:]
         for channel in guild.text_channels:
-            if channel.name.startswith(f"{prefix}-") and channel.name.endswith(suffix):
+            clean_name = self._clean_channel_name(channel.name)
+            if clean_name.startswith(f"{prefix}-") and clean_name.endswith(suffix):
                 return channel
         return None
 
@@ -266,6 +324,28 @@ class Tickets(commands.Cog):
             return False
         permissions = getattr(ctx.author, "guild_permissions", None)
         return bool(permissions and permissions.administrator)
+
+    def _find_text_channel(self, guild, target_name):
+        target = self._clean_channel_name(target_name)
+        for channel in guild.text_channels:
+            if self._clean_channel_name(channel.name).endswith(target):
+                return channel
+        return None
+
+    def _find_category(self, guild, target_name):
+        target = self._clean_channel_name(target_name)
+        for category in guild.categories:
+            clean_name = self._clean_channel_name(category.name)
+            if clean_name == target or clean_name.endswith(target):
+                return category
+        return None
+
+    def _clean_channel_name(self, channel_name):
+        cleaned = (channel_name or "").strip().lower()
+        for separator in ("|", "┃", "│"):
+            if separator in cleaned:
+                cleaned = cleaned.split(separator)[-1].strip()
+        return cleaned.replace(" ", "-")
 
     def _load_panels(self):
         if not self.PANEL_FILE.exists():
