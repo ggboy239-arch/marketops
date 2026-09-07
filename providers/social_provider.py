@@ -13,12 +13,13 @@ load_dotenv()
 
 
 class SocialProvider:
-    """Fetches public social/video news items for MarketOps.
+    """Fetches public X/social/video items for MarketOps.
 
     Plain English:
     - X account monitoring only runs when X_BEARER_TOKEN is present.
+    - X posts are treated as raw public account posts, not decoded news.
     - Video monitoring uses public YouTube RSS feeds and works without an API key.
-    - Everything is treated as an early alert, not confirmed financial advice.
+    - Social/video feeds stay separate from the normal news channels.
     """
 
     DEFAULT_X_USERNAMES = [
@@ -28,6 +29,20 @@ class SocialProvider:
         "Reuters",
         "CNBC",
         "YahooFinance",
+        "AP",
+        "NPR",
+        "FederalReserve",
+        "WhiteHouse",
+        "USTreasury",
+    ]
+
+    DEFAULT_TRENDING_X_USERNAMES = [
+        "Bloomberg",
+        "business",
+        "markets",
+        "CNBC",
+        "YahooFinance",
+        "Reuters",
         "AP",
         "NPR",
     ]
@@ -59,19 +74,24 @@ class SocialProvider:
         self.x_token = os.getenv("X_BEARER_TOKEN") or os.getenv("TWITTER_BEARER_TOKEN")
         self.x_enabled = bool(self.x_token)
         self.x_usernames = self._load_csv("X_USERNAMES", self.DEFAULT_X_USERNAMES)
+        self.trending_x_usernames = self._load_csv("TRENDING_X_USERNAMES", self.DEFAULT_TRENDING_X_USERNAMES)
         self.x_limit_per_user = max(5, int(os.getenv("X_LIMIT_PER_USER", "5")))
         self.x_backoff_minutes = int(os.getenv("X_RATE_LIMIT_BACKOFF_MINUTES", "60"))
         self.video_feeds = self._load_csv("YOUTUBE_FEEDS", self.DEFAULT_YOUTUBE_FEEDS)
         self.timeout = int(os.getenv("SOCIAL_TIMEOUT_SECONDS", "12"))
-        self.max_age_hours = float(os.getenv("SOCIAL_MAX_AGE_HOURS", "6"))
+        self.max_age_minutes = int(os.getenv("SOCIAL_MAX_AGE_MINUTES", "60"))
         self.request_delay_seconds = float(os.getenv("SOCIAL_REQUEST_DELAY_SECONDS", "1.5"))
+        self.x_require_market_terms = self._env_bool("SOCIAL_X_REQUIRE_MARKET_TERMS", default=False)
+        self.video_require_market_terms = self._env_bool("SOCIAL_VIDEO_REQUIRE_MARKET_TERMS", default=False)
+        self.trending_require_market_terms = self._env_bool("SOCIAL_TRENDING_REQUIRE_MARKET_TERMS", default=False)
         self._user_id_cache = {}
         self._x_blocked_until = None
         self.last_status = "Not checked yet"
         self.last_x_status = "Not checked yet"
         self.last_video_status = "Not checked yet"
+        self.last_trending_status = "Not checked yet"
         self.headers = {
-            "User-Agent": "MarketOpsSocialMonitor/1.0",
+            "User-Agent": "MarketOpsSocialMonitor/1.1",
         }
 
     def get_latest_items(self, limit=25, kind="all"):
@@ -79,15 +99,22 @@ class SocialProvider:
         items = []
 
         if kind in ("all", "x", "twitter", "social"):
-            items.extend(self._fetch_x_items())
+            items.extend(self._fetch_x_items(self.x_usernames, source_group="x"))
+
+        if kind in ("trending", "trend", "x-trending", "trending-x"):
+            items.extend(self._fetch_x_items(self.trending_x_usernames, source_group="trending"))
 
         if kind in ("all", "video", "videos", "youtube"):
             items.extend(self._fetch_video_items())
 
         items = self._deduplicate(items)
-        items = [item for item in items if self._is_fresh(item) and self._is_market_relevant(item)]
-        items = sorted(items, key=lambda item: item.get("published_dt") or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
-        self.last_status = f"OK: {len(items)} fresh social/video item(s) after filters."
+        items = [item for item in items if self._is_fresh(item) and self._passes_item_filter(item, kind)]
+        items = sorted(
+            items,
+            key=lambda item: (item.get("published_dt") or datetime.min.replace(tzinfo=timezone.utc), item.get("engagement_score", 0)),
+            reverse=True,
+        )
+        self.last_status = f"OK: {len(items)} fresh social/video item(s) in the last {self.max_age_minutes} min."
         return items[:limit]
 
     def status_text(self):
@@ -95,36 +122,51 @@ class SocialProvider:
         return (
             f"X monitor: {x_mode}\n"
             f"X accounts: {', '.join(self.x_usernames) if self.x_usernames else 'none'}\n"
+            f"Trending X accounts: {', '.join(self.trending_x_usernames) if self.trending_x_usernames else 'none'}\n"
             f"Video feeds: {len(self.video_feeds)} configured\n"
-            f"Freshness: last {self.max_age_hours:g} hour(s)\n"
+            f"Freshness window: last {self.max_age_minutes} minute(s)\n"
+            f"X raw-post mode: {'ON' if not self.x_require_market_terms else 'OFF'}\n"
             f"Last X: {self.last_x_status}\n"
+            f"Last Trending: {self.last_trending_status}\n"
             f"Last Video: {self.last_video_status}\n"
             f"Last Overall: {self.last_status}"
         )
 
-    def _fetch_x_items(self):
+    def _fetch_x_items(self, usernames, source_group="x"):
         if not self.x_enabled:
-            self.last_x_status = "OFF: X_BEARER_TOKEN missing"
+            status = "OFF: X_BEARER_TOKEN missing"
+            if source_group == "trending":
+                self.last_trending_status = status
+            else:
+                self.last_x_status = status
             return []
 
         if self._x_is_blocked():
             remaining = int((self._x_blocked_until - datetime.now(timezone.utc)).total_seconds() // 60) + 1
-            self.last_x_status = f"RATE LIMITED: sleeping about {remaining} more minute(s)"
+            status = f"RATE LIMITED: sleeping about {remaining} more minute(s)"
+            if source_group == "trending":
+                self.last_trending_status = status
+            else:
+                self.last_x_status = status
             return []
 
         items = []
         checked = 0
-        for username in self.x_usernames:
+        for username in usernames:
             if checked:
                 time.sleep(self.request_delay_seconds)
-            fetched = self._fetch_user_posts(username)
+            fetched = self._fetch_user_posts(username, source_group=source_group)
             items.extend(fetched)
             checked += 1
 
-        self.last_x_status = f"OK: checked {checked} account(s), got {len(items)} raw post(s)"
+        status = f"OK: checked {checked} account(s), got {len(items)} raw post(s)"
+        if source_group == "trending":
+            self.last_trending_status = status
+        else:
+            self.last_x_status = status
         return items
 
-    def _fetch_user_posts(self, username):
+    def _fetch_user_posts(self, username, source_group="x"):
         user_id = self._get_x_user_id(username)
         if not user_id:
             return []
@@ -156,19 +198,21 @@ class SocialProvider:
 
             media_keys = post.get("attachments", {}).get("media_keys", []) or []
             has_video = any((media_by_key.get(key, {}).get("type") in {"video", "animated_gif"}) for key in media_keys)
+            metrics = post.get("public_metrics") or {}
+            engagement_score = self._engagement_score(metrics)
             created = self._parse_date(post.get("created_at"))
             source = f"X @{username}"
             items.append(
                 {
-                    "type": "x",
+                    "type": "trending" if source_group == "trending" else "x",
                     "source": source,
                     "title": text,
                     "link": f"https://x.com/{username}/status/{post_id}",
                     "published_dt": created,
                     "provider": "X API",
                     "has_video": has_video,
-                    "why": "Public account post can be an early lead. Verify with a trusted article and price/volume reaction.",
-                    "watch": self._watch_text(text),
+                    "metrics": metrics,
+                    "engagement_score": engagement_score,
                 }
             )
         return items
@@ -265,8 +309,7 @@ class SocialProvider:
                     "provider": "YouTube RSS",
                     "has_video": True,
                     "feed_url": feed_url,
-                    "why": "Fresh video/news clip can explain what traders are watching. Verify with price action and a trusted write-up.",
-                    "watch": self._watch_text(title),
+                    "engagement_score": 0,
                 }
             )
         return items
@@ -281,31 +324,32 @@ class SocialProvider:
         if published_dt.tzinfo is None:
             published_dt = published_dt.replace(tzinfo=timezone.utc)
         age = datetime.now(timezone.utc) - published_dt.astimezone(timezone.utc)
-        return timedelta(0) <= age <= timedelta(hours=self.max_age_hours)
+        return timedelta(0) <= age <= timedelta(minutes=self.max_age_minutes)
+
+    def _passes_item_filter(self, item, kind):
+        item_type = item.get("type")
+        if item_type == "x" and not self.x_require_market_terms:
+            return True
+        if item_type == "trending" and not self.trending_require_market_terms:
+            return True
+        if item_type == "video" and not self.video_require_market_terms:
+            return True
+        return self._is_market_relevant(item)
 
     def _is_market_relevant(self, item):
         text = self._normalize(f"{item.get('title', '')} {item.get('source', '')}")
         return any(self._keyword_match(text, term) for term in self.MARKET_TERMS)
 
-    def _watch_text(self, text):
-        normalized = self._normalize(text)
-        watch = []
-        if any(term in normalized for term in ("fed", "inflation", "cpi", "ppi", "rates", "treasury", "yield")):
-            watch.extend(["US10Y", "DXY", "QQQ", "VIX"])
-        if any(term in normalized for term in ("oil", "crude", "opec", "iran", "israel", "russia", "ukraine", "china", "tariff", "sanctions")):
-            watch.extend(["Oil", "VIX", "Defense", "Energy"])
-        if any(term in normalized for term in ("ai", "nvidia", "amd", "chip", "semiconductor", "data center")):
-            watch.extend(["NVDA", "AMD", "QQQ", "Semis"])
-        if any(term in normalized for term in ("bitcoin", "crypto", "ethereum")):
-            watch.extend(["BTC", "Coinbase", "Crypto ETFs"])
-        if not watch:
-            watch.extend(["SPY", "QQQ", "VIX", "affected sector"])
-
-        deduped = []
-        for item in watch:
-            if item not in deduped:
-                deduped.append(item)
-        return ", ".join(deduped[:5])
+    def _engagement_score(self, metrics):
+        try:
+            return (
+                int(metrics.get("like_count", 0))
+                + int(metrics.get("retweet_count", 0)) * 2
+                + int(metrics.get("reply_count", 0))
+                + int(metrics.get("quote_count", 0)) * 2
+            )
+        except Exception:
+            return 0
 
     def _find_text(self, root, tag, ns):
         element = root.find(tag, ns)
@@ -364,7 +408,13 @@ class SocialProvider:
             return list(default)
         values = []
         for item in raw.split(","):
-            cleaned = item.strip()
+            cleaned = item.strip().lstrip("@")
             if cleaned:
                 values.append(cleaned)
         return values
+
+    def _env_bool(self, name, default=False):
+        value = os.getenv(name)
+        if value is None:
+            return default
+        return value.strip().lower() in ("1", "true", "yes", "y", "on")
