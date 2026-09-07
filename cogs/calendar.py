@@ -14,15 +14,15 @@ import discord
 from discord.ext import commands, tasks
 
 
-VERSION = "MarketOps v2.8.2"
+VERSION = "MarketOps v2.8.3"
 
 
 class MarketCalendar(commands.Cog):
     """Official event-only calendar alerts.
 
-    This does not post daily reminder spam. It pulls official sources, stores
-    upcoming events, posts event lists to #market-calendar, and posts countdown
-    alerts to #calendar-event-reminder only when an event is coming up.
+    Plain English: this does not post empty daily reminders. It pulls official
+    event sources, stores upcoming events, and posts countdown alerts only when
+    a real event is coming up.
     """
 
     EVENTS_FILE = Path("data/calendar_events.json")
@@ -42,11 +42,11 @@ class MarketCalendar(commands.Cog):
     )
 
     REMINDER_WINDOWS = [
-        ("24h", 24 * 60, 35),
-        ("1h", 60, 10),
-        ("30m", 30, 6),
-        ("5m", 5, 3),
-        ("start", 0, 3),
+        ("24h", 24 * 60, 40),
+        ("1h", 60, 12),
+        ("30m", 30, 8),
+        ("5m", 5, 4),
+        ("start", 0, 4),
     ]
 
     def __init__(self, bot):
@@ -55,7 +55,7 @@ class MarketCalendar(commands.Cog):
         self.reminder_channel_name = os.getenv("MARKETOPS_CALENDAR_REMINDER_CHANNEL", "calendar-event-reminder")
         self.auto_post = os.getenv("MARKETOPS_CALENDAR_AUTO_POST", "true").strip().lower() in {"1", "true", "yes", "on"}
         self.fetch_minutes = max(15, int(os.getenv("MARKETOPS_CALENDAR_FETCH_MINUTES", "60")))
-        self.window_days = int(os.getenv("MARKETOPS_CALENDAR_WINDOW_DAYS", "14"))
+        self.window_days = int(os.getenv("MARKETOPS_CALENDAR_WINDOW_DAYS", "21"))
         self.calendar_loop.change_interval(minutes=self.fetch_minutes)
         self.calendar_loop.start()
 
@@ -107,7 +107,7 @@ class MarketCalendar(commands.Cog):
         events = self._future_events(self._read_events().get("events", {}).values())
         embed = discord.Embed(
             title="🗓️ MarketOps Calendar Status",
-            description="Official-source, event-only alerts. No empty daily reminder spam.",
+            description="Official-source event alerts. No empty daily reminder spam.",
             color=discord.Color.blue(),
         )
         embed.add_field(name="Auto Pull/Post", value="ON" if self.auto_post else "OFF", inline=True)
@@ -140,7 +140,7 @@ class MarketCalendar(commands.Cog):
         if not self.auto_post or not self.bot.guilds:
             return
 
-        result = await asyncio.to_thread(self._fetch_and_store_events)
+        await asyncio.to_thread(self._fetch_and_store_events)
         events = self._future_events(self._read_events().get("events", {}).values())
         if not events:
             return
@@ -260,7 +260,6 @@ class MarketCalendar(commands.Cog):
             if not title or not pub_date:
                 continue
             dt = parsedate_to_datetime(pub_date).astimezone(timezone.utc)
-            # White House RSS is mostly posts, not future schedule. Store only recent market-relevant schedule/remarks items.
             if dt < datetime.now(timezone.utc) - timedelta(hours=18):
                 continue
             events.append(self._make_event(
@@ -276,12 +275,9 @@ class MarketCalendar(commands.Cog):
     def _extract_dated_page_events(self, html, source, url, why):
         text = self._strip_html(html)
         events = []
-        # Basic official-page parser: catches dates written like September 17, 2026 or Sep 17, 2026.
         pattern = r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+20\d{2})(.{0,220})"
         for date_text, nearby in re.findall(pattern, text, flags=re.I):
-            title = self._clean_space(nearby)[:140]
-            if not title:
-                title = source
+            title = self._clean_space(nearby)[:140] or source
             event_time = self._parse_page_date(date_text)
             if event_time:
                 events.append(self._make_event(
@@ -352,7 +348,7 @@ class MarketCalendar(commands.Cog):
         errors = result.get("errors", [])
         embed = discord.Embed(
             title="✅ Official Calendar Pull Complete",
-            description="No event = no auto post. Reminders only post when saved official events are coming up.",
+            description="No event = no auto post. Reminders only post when official events are coming up.",
             color=discord.Color.green(),
         )
         embed.add_field(name="Upcoming Events Found", value=str(len(events)), inline=True)
@@ -382,13 +378,13 @@ class MarketCalendar(commands.Cog):
         embed.add_field(name="Why It Matters", value=event.get("why", "Scheduled event may move markets."), inline=False)
         embed.add_field(name="Watch", value=event.get("watch", "SPY, QQQ, VIX, DXY, 10Y"), inline=False)
         embed.add_field(name="Source", value=f"{event.get('source', 'Official source')}\n{event.get('url', '')}", inline=False)
-        embed.set_footer(text=f"Official event-only reminder • {VERSION}")
+        embed.set_footer(text=f"Official event reminder • {VERSION}")
         return embed
 
     def _help_embed(self):
         embed = discord.Embed(
             title="🗓️ MarketOps Official Event Calendar",
-            description="Pulls official sources and only posts when real events are coming up. No daily empty reminders.",
+            description="Pulls official sources and only posts countdowns when real events are coming up. No empty daily reminders.",
             color=discord.Color.blue(),
         )
         embed.add_field(name="Channels", value=f"Event list: `#{self.calendar_channel_name}`\nReminders: `#{self.reminder_channel_name}`", inline=False)
@@ -446,22 +442,43 @@ class MarketCalendar(commands.Cog):
 
     def _parse_iso(self, text):
         try:
-            return datetime.fromisoformat(text)
+            parsed = datetime.fromisoformat(text)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
         except Exception:
             return None
 
     def _parse_ics_datetime(self, text):
-        clean = text.strip()
+        clean = (text or "").strip()
+        clean = clean.split(";", 1)[0].strip() if ":" in clean else clean
+        clean = re.sub(r"[^0-9TZ]", "", clean)
+
+        # BLS sometimes sends all-day dates with extra zeroes. Handle date-only first.
+        if re.fullmatch(r"\d{8}0{0,6}", clean):
+            return datetime.strptime(clean[:8], "%Y%m%d").replace(hour=8, minute=30, tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
+
         if clean.endswith("Z"):
-            return datetime.strptime(clean, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-        if "T" in clean:
-            return datetime.strptime(clean[:15], "%Y%m%dT%H%M").replace(tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
-        return datetime.strptime(clean[:8], "%Y%m%d").replace(hour=8, minute=30, tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
+            digits = clean[:-1]
+            if len(digits) >= 14:
+                return datetime.strptime(digits[:14], "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+            if len(digits) >= 12:
+                return datetime.strptime(digits[:12], "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
+
+        digits = clean.replace("T", "").replace("Z", "")
+        if len(digits) >= 14:
+            return datetime.strptime(digits[:14], "%Y%m%d%H%M%S").replace(tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
+        if len(digits) >= 12:
+            return datetime.strptime(digits[:12], "%Y%m%d%H%M").replace(tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
+        if len(digits) >= 8:
+            return datetime.strptime(digits[:8], "%Y%m%d").replace(hour=8, minute=30, tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
+        return None
 
     def _parse_page_date(self, date_text):
-        for fmt in ("%B %d, %Y", "%b %d, %Y", "%Sept %d, %Y"):
+        clean = date_text.replace("Sept", "Sep")
+        for fmt in ("%B %d, %Y", "%b %d, %Y"):
             try:
-                return datetime.strptime(date_text.replace("Sept", "Sep"), fmt.replace("Sept", "Sep")).replace(hour=8, minute=30, tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
+                return datetime.strptime(clean, fmt).replace(hour=8, minute=30, tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
             except ValueError:
                 pass
         return None
