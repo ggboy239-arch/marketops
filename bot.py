@@ -68,6 +68,11 @@ CALENDAR_COMMANDS = [
     "calendaron", "calon", "calendaroff", "caloff",
 ]
 
+CHART_COMMANDS = [
+    "chart", "candlechart", "candles", "candlehelp", "ohlc",
+    "pulse", "fastmarket", "marketpulse",
+]
+
 COMMAND_CHANNELS = {
     "status": ["bot-status"],
     "market": ["market-dashboard"],
@@ -80,6 +85,7 @@ COMMAND_CHANNELS = {
     **{command: ["admin-keys"] for command in ADMIN_KEY_COMMANDS},
     **{command: ["owner-audit"] for command in OWNER_AUDIT_COMMANDS},
     **{command: ["market-calendar"] for command in CALENDAR_COMMANDS},
+    **{command: ["market-dashboard", "market-school"] for command in CHART_COMMANDS},
     "ticketpanel": ["marketops-commands", "admin-keys"],
     "closeticket": ["admin-keys"],
     "close": ["admin-keys"],
@@ -194,6 +200,7 @@ async def on_ready():
 async def load():
     await bot.load_extension("cogs.ping")
     await bot.load_extension("cogs.market")
+    await bot.load_extension("cogs.chart")
     await bot.load_extension("cogs.coach")
     await bot.load_extension("cogs.explain")
     await bot.load_extension("cogs.news")
