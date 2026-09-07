@@ -9,7 +9,7 @@ from discord.ext import commands, tasks
 from market.watchlist_engine import WatchlistEngine
 
 
-VERSION = "MarketOps v1.2"
+VERSION = "MarketOps v1.3"
 
 
 class Watchlist(commands.Cog):
@@ -66,6 +66,24 @@ class Watchlist(commands.Cog):
                 ephemeral=True,
             )
 
+    @app_commands.command(
+        name="watch",
+        description="Add a ticker to your MarketOps watchlist.",
+    )
+    async def watch_slash(self, interaction: discord.Interaction, symbol: str):
+        await interaction.response.defer(thinking=True)
+        result = await asyncio.to_thread(self.watchlist.add_symbol, symbol)
+        await interaction.followup.send(embed=self._build_change_embed("➕ Watchlist Updated", result))
+
+    @app_commands.command(
+        name="unwatch",
+        description="Remove a ticker from your MarketOps watchlist.",
+    )
+    async def unwatch_slash(self, interaction: discord.Interaction, symbol: str):
+        await interaction.response.defer(thinking=True)
+        result = await asyncio.to_thread(self.watchlist.remove_symbol, symbol)
+        await interaction.followup.send(embed=self._build_change_embed("➖ Watchlist Updated", result))
+
     @commands.command(name="watchlist")
     async def watchlist_prefix(self, ctx):
         """Desktop/web fallback command. Type !watchlist."""
@@ -85,6 +103,24 @@ class Watchlist(commands.Cog):
         except Exception as error:
             print(f"❌ !alerts error: {error}")
             await ctx.send("⚠️ MarketOps had trouble scanning alerts. Check the terminal for the error.")
+
+    @commands.command(name="watch")
+    async def watch_prefix(self, ctx, symbol: str = ""):
+        """Add a ticker. Example: !watch TSLA"""
+        result = await asyncio.to_thread(self.watchlist.add_symbol, symbol)
+        await ctx.send(embed=self._build_change_embed("➕ Watchlist Updated", result))
+
+    @commands.command(name="unwatch")
+    async def unwatch_prefix(self, ctx, symbol: str = ""):
+        """Remove a ticker. Example: !unwatch CVX"""
+        result = await asyncio.to_thread(self.watchlist.remove_symbol, symbol)
+        await ctx.send(embed=self._build_change_embed("➖ Watchlist Updated", result))
+
+    @commands.command(name="watchreset")
+    async def watchreset_prefix(self, ctx):
+        """Reset watchlist to .env/default symbols."""
+        result = await asyncio.to_thread(self.watchlist.reset_symbols)
+        await ctx.send(embed=self._build_change_embed("🔄 Watchlist Reset", result))
 
     @tasks.loop(seconds=30)
     async def watchlist_loop(self):
@@ -130,12 +166,18 @@ class Watchlist(commands.Cog):
         if not quotes:
             embed.add_field(
                 name="No symbols found",
-                value="Add WATCHLIST_SYMBOLS to your .env file.",
+                value="Use `!watch NVDA` or add WATCHLIST_SYMBOLS to your .env file.",
                 inline=False,
             )
         else:
             value = "\n".join(item["line"] for item in quotes[:15])
             embed.add_field(name="Current Watchlist", value=value, inline=False)
+
+        embed.add_field(
+            name="Commands",
+            value="`!watch TSLA` adds a ticker\n`!unwatch CVX` removes a ticker\n`!watchreset` resets to .env/default list",
+            inline=False,
+        )
 
         embed.add_field(
             name="Price Alert Rule",
@@ -147,7 +189,7 @@ class Watchlist(commands.Cog):
             name="News Alert Rule",
             value=(
                 "Ticker/company headlines are scanned when WATCHLIST_NEWS_ALERTS=true.\n"
-                "News alerts now include quality labels: High Trust, Medium Trust, Low Trust, or Needs Confirmation."
+                "News alerts include quality labels: High Trust, Medium Trust, Low Trust, or Needs Confirmation."
             ),
             inline=False,
         )
@@ -192,6 +234,20 @@ class Watchlist(commands.Cog):
             )
 
         embed.set_footer(text=f'Checked {report.get("updated", "Unknown")} • {VERSION}')
+        return embed
+
+    def _build_change_embed(self, title, result):
+        color = discord.Color.green() if result.get("ok") else discord.Color.orange()
+        embed = discord.Embed(
+            title=title,
+            description=result.get("message", "Watchlist updated."),
+            color=color,
+        )
+
+        symbols = result.get("symbols", [])
+        symbol_text = ", ".join(symbols) if symbols else "No symbols saved."
+        embed.add_field(name="Current Symbols", value=symbol_text, inline=False)
+        embed.set_footer(text=VERSION)
         return embed
 
     def _alert_title(self, alert):
