@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 
-VERSION = "MarketOps v2.5"
+VERSION = "MarketOps v2.6"
 
 
 class MarketOpsHelp(commands.Cog):
@@ -34,36 +34,39 @@ class MarketOpsHelp(commands.Cog):
         )
 
         embed.add_field(
+            name="👤 Personal User Commands",
+            value=(
+                "`!redeem KEY-HERE` — unlock personal commands → `#watchlist`\n"
+                "`!profile` — show your setup → `#watchlist`\n"
+                "`!timezone America/New_York` — set your timezone → `#watchlist`\n"
+                "`!brief-times 06:00,12:00,16:15` — set your times → `#watchlist`\n"
+                "`!alert-percent 3` — set your alert percent → `#watchlist`\n"
+                "`!add TSLA` / `!remove TSLA` — edit your list → `#watchlist`\n"
+                "`!list` / `!scan` — show or scan your personal list → `#watchlist`"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🔑 Admin Key Commands",
+            value=(
+                "`!genkey beta 30` — make one 30-day beta key\n"
+                "`!genkey monthly 30` — make one monthly key\n"
+                "`!genkey lifetime` — make one lifetime key\n"
+                "`!genkeys beta 30 5` — make 5 beta keys\n"
+                "`!revokekey KEY-HERE` — disable a key\n"
+                "`!adminusers` — see redeemed users"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
             name="📌 Shared Watchlist / Alerts",
             value=(
                 "`!watchlist` — show shared watched symbols → `#watchlist`\n"
-                "`!alerts` — scan shared price + headline alerts → `#watchlist`\n"
-                "`!watch TSLA` — add shared symbol → `#watchlist`\n"
-                "`!unwatch CVX` — remove shared symbol → `#watchlist`\n"
-                "`!threshold 2` — set shared alert percent → `#watchlist`"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="👤 Personal User Settings",
-            value=(
-                "`!mysettings` — show your personal setup → `#watchlist`\n"
-                "`!mytimezone America/Los_Angeles` — set your timezone → `#watchlist`\n"
-                "`!mybrief 05:30,09:30,13:15` — set your brief times → `#watchlist`\n"
-                "`!mythreshold 3` — set your own alert percent → `#watchlist`\n"
-                "`!mywatch TSLA` / `!myunwatch TSLA` — edit your list → `#watchlist`\n"
-                "`!mywatchlist` / `!myalerts` — check your personal list/alerts → `#watchlist`"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="⚙️ Shared Alert Controls",
-            value=(
-                "`!alertstatus` — show shared settings → `#watchlist`\n"
-                "`!alertson` / `!alertsoff` — turn shared alerts on/off → `#watchlist`\n"
-                "`!newson` / `!newsoff` — turn shared headline alerts on/off → `#watchlist`"
+                "`!alerts` — scan shared alerts → `#watchlist`\n"
+                "`!watch TSLA` / `!unwatch CVX` — edit shared list → `#watchlist`\n"
+                "`!threshold 2` — set shared price alert percent → `#watchlist`"
             ),
             inline=False,
         )
@@ -72,6 +75,7 @@ class MarketOpsHelp(commands.Cog):
             name="📰 News Commands",
             value=(
                 "`!news` — latest routed news → news channels\n"
+                "`!news sources` — provider status/source policy\n"
                 "`!news ai` — AI/tech → `#ai-news`\n"
                 "`!news geo` — geopolitics/oil risk → `#geopolitics`\n"
                 "`!news fed` — Fed/rates/inflation → `#fed`\n"
@@ -89,7 +93,7 @@ class MarketOpsHelp(commands.Cog):
 
         embed.add_field(
             name="Best Daily Flow",
-            value="`!brief` → `!watchlist` → `!alerts` → `!learn`",
+            value="`!brief` → `!list` → `!scan` → `!learn`",
             inline=False,
         )
 
