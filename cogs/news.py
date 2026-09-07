@@ -12,7 +12,7 @@ from discord.ext import commands, tasks
 from market.news_engine import NewsEngine
 
 
-VERSION = "MarketOps v0.7.6"
+VERSION = "MarketOps v0.7.7"
 
 
 class News(commands.Cog):
@@ -68,7 +68,7 @@ class News(commands.Cog):
                 allowed_mentions=discord.AllowedMentions.none(),
             )
         except Exception as error:
-            print(f"❌ /news error: {error}")
+            print(f"❌ /news error: {error!r}")
             await interaction.followup.send(
                 "⚠️ MarketOps had trouble building the news report. Check the terminal for the error.",
                 ephemeral=True,
@@ -105,7 +105,7 @@ class News(commands.Cog):
                 allowed_mentions=discord.AllowedMentions.none(),
             )
         except Exception as error:
-            print(f"❌ !news error: {error}")
+            print(f"❌ !news error: {error!r}")
             await ctx.send("⚠️ MarketOps had trouble building the news report. Check the terminal for the error.")
 
     @tasks.loop(seconds=15)
@@ -143,7 +143,7 @@ class News(commands.Cog):
                 print(f"📰 Auto-posted fresh items into {total_posted} channel(s).")
             self._save_seen_news()
         except Exception as error:
-            print(f"❌ Auto news loop error: {error}")
+            print(f"❌ Auto news loop error: {error!r}")
 
     async def _post_news_to_channels(self, ctx):
         if ctx.guild is None:
@@ -156,10 +156,10 @@ class News(commands.Cog):
         self._last_provider_used = report.get("provider_used", "Unknown")
 
         posted_count, missing_channels = await self._send_channel_report(ctx.guild, report, filter_seen=False)
-        message = f"✅ Posted fresh routed items into **{posted_count}** channel(s)."
+        message = f"✅ Posted fresh routed items into **{posted_count}** regular news channel(s)."
         count_text = self._format_counts(report.get("counts", {}))
         if count_text:
-            message += f"\n\nFound by channel:\n{count_text}"
+            message += f"\n\nFound by regular news channel:\n{count_text}"
         if missing_channels:
             message += "\n⚠️ Missing channels: " + ", ".join(f"#{name}" for name in missing_channels)
         await ctx.send(message)
@@ -236,8 +236,6 @@ class News(commands.Cog):
     def _format_item(self, item):
         title = discord.utils.escape_markdown(item.get("title", "Untitled"))
         link = self._clean_link(item.get("link", ""))
-        tags = ", ".join(item.get("tags", []))
-        channel = item.get("channel", "breaking-news")
         provider = item.get("provider", "Unknown")
         trusted_badge = "✅ Trusted" if item.get("trusted") else "⚠️ Chatter / verify first"
         read_line = f"Open: [Read full item](<{link}>)\n" if link else ""
@@ -246,9 +244,7 @@ class News(commands.Cog):
             f"**{title}**\n"
             f"{read_line}"
             f"Source: {trusted_badge} • Provider: **{provider}**\n"
-            f"Published: **{item.get('published_label', 'Unknown')}** ({item.get('age_label', 'Unknown')})\n"
-            f"Tags: {tags}\n"
-            f"Route: `#{channel}`"
+            f"Published: **{item.get('published_label', 'Unknown')}** ({item.get('age_label', 'Unknown')})"
         )
         return value[:997] + "..." if len(value) > 1000 else value
 
@@ -293,6 +289,7 @@ class News(commands.Cog):
         embed = discord.Embed(title="📰 MarketOps News Help", description=self.news.category_help(), color=discord.Color.gold())
         embed.add_field(name="Live Auto-Posting", value="MarketOps checks for fresh items and routes them into regular news channels. Use `!news live` for status.", inline=False)
         embed.add_field(name="Mobile Notifications", value="Auto-posts include a clean plain-text headline before the embed so Discord mobile shows the headline.", inline=False)
+        embed.add_field(name="Clean Cards", value="News cards show headline, source, provider, and time only. Routing/tags stay internal.", inline=False)
         embed.add_field(name="Separate Feeds", value="X/video/trending posts use `!social`, `!xnews`, `!videonews`, and `!trending` in their own channels.", inline=False)
         embed.set_footer(text=VERSION)
         return embed
@@ -301,6 +298,7 @@ class News(commands.Cog):
         embed = discord.Embed(title="🧭 MarketOps News Channel Routing", description=self.news.channel_map_text(), color=discord.Color.gold())
         embed.add_field(name="Manual channel post", value="Type `!news post` to send current fresh items into regular news channels only.", inline=False)
         embed.add_field(name="Rule", value="Sports/entertainment noise is blocked. AI goes to `#ai-news` only when the headline has actual AI/chip/GPU/data-center context.", inline=False)
+        embed.add_field(name="Clean Display", value="Tags and route lines are hidden from public posts because the bot handles that internally.", inline=False)
         embed.add_field(name="Separate Channels", value="Regular news does not post to `#x-news`, `#video-news`, or `#trending-news`.", inline=False)
         embed.set_footer(text=VERSION)
         return embed
