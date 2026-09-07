@@ -70,19 +70,17 @@ CALENDAR_COMMANDS = [
 
 PULSE_COMMANDS = ["pulse", "fastmarket", "marketpulse"]
 
-PUBLIC_CHART_COMMANDS = ["chart", "candlechart"]
+PUBLIC_CHART_COMMANDS = ["chart", "charts", "candlechart"]
 
 PRIVATE_CHART_COMMANDS = ["mychart", "privatechart", "dmchart"]
 
 CANDLE_LEARNING_COMMANDS = ["candles", "candlehelp", "ohlc"]
 
-SOCIAL_COMMANDS = [
-    "social", "socialstatus", "xstatus",
-    "xnews", "xposts", "twitternews",
-    "videonews", "videos", "newsvideos",
-    "trending", "trendnews", "socialnews",
-    "socialpost", "xpost", "videopost",
-]
+SOCIAL_STATUS_COMMANDS = ["social", "socialstatus", "xstatus"]
+X_NEWS_COMMANDS = ["xnews", "xposts", "twitternews"]
+VIDEO_NEWS_COMMANDS = ["videonews", "videos", "newsvideos"]
+TRENDING_NEWS_COMMANDS = ["trending", "trendnews", "socialnews"]
+SOCIAL_POST_COMMANDS = ["socialpost", "xpost", "videopost"]
 
 COMMAND_CHANNELS = {
     "status": ["bot-status"],
@@ -100,7 +98,11 @@ COMMAND_CHANNELS = {
     **{command: ["market-charts"] for command in PUBLIC_CHART_COMMANDS},
     **{command: ["market-charts", "watchlist"] for command in PRIVATE_CHART_COMMANDS},
     **{command: ["market-school", "market-charts"] for command in CANDLE_LEARNING_COMMANDS},
-    **{command: ["x-news", "video-news", "trending-news"] for command in SOCIAL_COMMANDS},
+    **{command: ["x-news", "video-news", "trending-news"] for command in SOCIAL_STATUS_COMMANDS},
+    **{command: ["x-news"] for command in X_NEWS_COMMANDS},
+    **{command: ["video-news"] for command in VIDEO_NEWS_COMMANDS},
+    **{command: ["trending-news"] for command in TRENDING_NEWS_COMMANDS},
+    **{command: ["x-news", "video-news", "trending-news"] for command in SOCIAL_POST_COMMANDS},
     "ticketpanel": ["marketops-commands", "admin-keys"],
     "closeticket": ["admin-keys"],
     "close": ["admin-keys"],
