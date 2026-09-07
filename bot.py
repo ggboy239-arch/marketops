@@ -14,8 +14,10 @@ intents.message_content = True
 intents.members = True
 intents.reactions = True
 
+
 def _prefix(bot, message):
     return "!"
+
 
 bot = commands.Bot(
     command_prefix=_prefix,
@@ -81,6 +83,32 @@ COMMAND_CHANNELS = {
 }
 
 
+def _clean_channel_name(channel_name):
+    """Make emoji channel names match normal bot rules.
+
+    Examples:
+    🔑 | redeem-access -> redeem-access
+    🧭┃marketops-commands -> marketops-commands
+    marketops-commands -> marketops-commands
+    """
+    cleaned = (channel_name or "").strip().lower()
+    for separator in ("|", "┃", "│"):
+        if separator in cleaned:
+            cleaned = cleaned.split(separator)[-1].strip()
+    return cleaned.replace(" ", "-")
+
+
+def _channel_matches(current_channel, allowed_channels):
+    cleaned_current = _clean_channel_name(current_channel)
+    for allowed in allowed_channels:
+        cleaned_allowed = _clean_channel_name(allowed)
+        if cleaned_current == cleaned_allowed:
+            return True
+        if cleaned_current.endswith(cleaned_allowed):
+            return True
+    return False
+
+
 @bot.check
 async def command_channel_check(ctx):
     """Keep commands in their correct Discord channels."""
@@ -95,14 +123,15 @@ async def command_channel_check(ctx):
 
     # Ticket close must work inside created private ticket channels too.
     current_channel = getattr(ctx.channel, "name", "")
-    if invoked_name in {"closeticket", "close"} and current_channel.startswith(("buy-", "renew-", "bug-", "ticket-")):
+    cleaned_current_channel = _clean_channel_name(current_channel)
+    if invoked_name in {"closeticket", "close"} and cleaned_current_channel.startswith(("buy-", "renew-", "bug-", "support-", "ticket-")):
         return True
 
     allowed_channels = COMMAND_CHANNELS.get(invoked_name) or COMMAND_CHANNELS.get(command_name)
     if not allowed_channels:
         return True
 
-    if current_channel in allowed_channels:
+    if _channel_matches(current_channel, allowed_channels):
         return True
 
     allowed_text = ", ".join(f"#{name}" for name in allowed_channels)
