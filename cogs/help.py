@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 
-VERSION = "MarketOps v2.9"
+VERSION = "MarketOps v2.9.1"
 
 
 class MarketOpsHelp(commands.Cog):
@@ -25,12 +25,13 @@ class MarketOpsHelp(commands.Cog):
         embed.add_field(
             name="⚡ Fast Market / Charts",
             value=(
-                "`!pulse` — fast snapshot → `#market-dashboard` or `#market-school`\n"
+                "`!pulse` — shared fast snapshot → `#market-dashboard`\n"
                 "`!market` — full dashboard with gold/oil/VIX/rates/BTC → `#market-dashboard`\n"
-                "`!chart TSLA` — candlestick chart → `#market-dashboard` or `#market-school`\n"
+                "`!chart TSLA 5d` — public candlestick chart → `#market-charts`\n"
+                "`!mychart TSLA 5d` — private chart sent to your DMs → `#market-charts` or `#watchlist`\n"
                 "`!chart QQQ 1d` — 1-day intraday candles\n"
                 "`!chart GC=F 5d` — gold futures chart\n"
-                "`!candles` — open/high/low/close lesson"
+                "`!candles` — open/high/low/close lesson → `#market-school` or `#market-charts`"
             ),
             inline=False,
         )
@@ -129,8 +130,8 @@ class MarketOpsHelp(commands.Cog):
         )
 
         embed.add_field(
-            name="Best Daily Flow",
-            value="`!pulse` → `!brief` → `!chart SPY 1d` → `!chart QQQ 1d` → `!news post` → `!learn`",
+            name="Best Flow",
+            value="`!pulse` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!learn candles`",
             inline=False,
         )
 
