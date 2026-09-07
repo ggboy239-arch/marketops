@@ -7,7 +7,8 @@ from discord.ext import commands
 from market.access_key_engine import AccessKeyEngine
 
 
-VERSION = "MarketOps v2.6.1"
+VERSION = "MarketOps v2.6.2"
+PAYMENT_TEXT = "PayPal F&F: `ggboy_239@yahoo.com`\nCash App: `$eddiej12180`"
 
 
 class Access(commands.Cog):
@@ -22,6 +23,7 @@ class Access(commands.Cog):
         self.keys = AccessKeyEngine()
         self.admin_channel_name = os.getenv("MARKETOPS_ADMIN_CHANNEL", "admin-keys")
         self.owner_id = os.getenv("MARKETOPS_OWNER_ID", "").strip()
+        self.owner_mention_text = os.getenv("MARKETOPS_OWNER_MENTION", "@ssg").strip()
 
     @commands.command(name="redeem")
     async def redeem_prefix(self, ctx, key: str = ""):
@@ -115,14 +117,15 @@ class Access(commands.Cog):
         record = result.get("record", {})
         embed = discord.Embed(
             title="🔁 Renewal Needs Approval",
-            description="Confirm PayPal/Cash App payment first, then approve or deny this renewal.",
+            description="Confirm payment first, then approve or deny this renewal.",
             color=discord.Color.gold(),
         )
         embed.add_field(name="User", value=f'{request.get("username", "Unknown")} (`{request.get("user_id", "Unknown")}`)', inline=False)
         embed.add_field(name="Request ID", value=f'`{request.get("request_id", "Unknown")}`', inline=True)
         embed.add_field(name="Plan", value=record.get("plan", "unknown"), inline=True)
         embed.add_field(name="Days", value=str(record.get("days", 0)), inline=True)
-        embed.add_field(name="Approve", value=f'`!approverenew {request.get("request_id", "")}`', inline=False)
+        embed.add_field(name="Payment To Check", value=PAYMENT_TEXT, inline=False)
+        embed.add_field(name="Approve After Payment", value=f'`!approverenew {request.get("request_id", "")}`', inline=False)
         embed.add_field(name="Deny", value=f'`!denyrenew {request.get("request_id", "")}`', inline=False)
         embed.set_footer(text=VERSION)
         await channel.send(content=mention, embed=embed)
@@ -130,6 +133,8 @@ class Access(commands.Cog):
     def _owner_mention(self, ctx):
         if self.owner_id:
             return f"<@{self.owner_id}>"
+        if self.owner_mention_text:
+            return self.owner_mention_text
         if ctx.guild and ctx.guild.owner_id:
             return f"<@{ctx.guild.owner_id}>"
         return "@here"
@@ -155,7 +160,8 @@ class Access(commands.Cog):
         if record:
             embed.add_field(name="Plan", value=record.get("plan", "unknown"), inline=True)
             embed.add_field(name="Days", value=str(record.get("days", 0)), inline=True)
-        embed.add_field(name="Next Step", value="Wait for Eduardo/admin to confirm payment and approve it.", inline=False)
+        embed.add_field(name="Payment Required Before Approval", value=PAYMENT_TEXT, inline=False)
+        embed.add_field(name="Next Step", value="After payment, wait for @ssg/Eduardo to confirm and approve your renewal.", inline=False)
         embed.set_footer(text=VERSION)
         return embed
 
@@ -179,12 +185,14 @@ class Access(commands.Cog):
             lines.append(f'`{record.get("key")}` — {record.get("plan")} — {access_length}')
         embed.add_field(name="New Key(s)", value="\n".join(lines[:25]), inline=False)
         embed.add_field(name="First-Time Access", value="They go to `#redeem-access` and type `!redeem KEY-HERE`.", inline=False)
+        embed.add_field(name="Renewal Payment", value=PAYMENT_TEXT, inline=False)
         embed.add_field(name="Renewal", value="They go to `#redeem-access` and type `!renew KEY-HERE`. You approve after confirming payment.", inline=False)
         embed.set_footer(text=VERSION)
         return embed
 
     def _pending_renewals_embed(self, renewals):
         embed = discord.Embed(title="🔁 Pending MarketOps Renewals", description="Confirm payment before approving.", color=discord.Color.gold())
+        embed.add_field(name="Payment To Check", value=PAYMENT_TEXT, inline=False)
         if not renewals:
             embed.add_field(name="No pending renewals", value="No renewal requests are waiting right now.", inline=False)
         else:
