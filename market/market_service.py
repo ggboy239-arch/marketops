@@ -38,13 +38,7 @@ class MarketService:
         warning_signal = self._find_warning_signal(snapshot)
         energy_signal = self._format_signal(snapshot, "oil")
         crypto_signal = self._format_signal(snapshot, "bitcoin")
-        theme = self._detect_theme(
-            market_change,
-            tech_change,
-            fear_change,
-            oil_change,
-            bitcoin_change,
-        )
+        theme = self._detect_theme(market_change, tech_change, fear_change, oil_change, bitcoin_change)
 
         return {
             "risk": risk["mood"],
@@ -83,28 +77,28 @@ class MarketService:
         return value
 
     def _format_asset(self, quote):
-        if quote["status"] == "Unavailable":
-            return f'{quote["symbol"]}\nUnavailable / no fresh data'
+        if quote.get("status") == "Unavailable":
+            return f'{quote.get("symbol", "Unknown")}\nUnavailable / no fresh data'
 
-        price = self._format_price(quote["price"], quote["kind"])
+        price = self._format_price(quote.get("price", 0), quote.get("kind", "number"))
         change_text = self._format_change(quote)
 
         value = (
-            f'{quote["symbol"]}\n'
+            f'{quote.get("symbol", "Unknown")}\n'
             f'Price: **{price}**\n'
             f'Today: **{change_text}**\n'
-            f'Status: {quote["status"]}'
+            f'Status: {quote.get("status", "Unknown")}'
         )
 
         if quote.get("stale"):
             value += "\nNote: **stale/no fresh intraday data**"
-        elif quote["status"] == "Futures":
+        elif quote.get("status") == "Futures":
             value += "\nAfter Market: **Live futures / overnight price**"
 
-        if quote["extended_price"] is not None:
-            extended_label = quote["status"]
-            extended_price = self._format_price(quote["extended_price"], quote["kind"])
-            extended_change = self._safe_percent(quote["extended_change_percent"])
+        if quote.get("extended_price") is not None:
+            extended_label = quote.get("status", "Extended")
+            extended_price = self._format_price(quote.get("extended_price"), quote.get("kind", "number"))
+            extended_change = self._safe_percent(quote.get("extended_change_percent"))
 
             if extended_change is None:
                 value += f'\n{extended_label}: **{extended_price}**'
@@ -114,24 +108,22 @@ class MarketService:
         return value
 
     def _format_price(self, price, kind):
+        value = self._safe_number(price)
+        if value is None:
+            return "no fresh price"
+
         if kind == "crypto":
-            return f"${price:,.0f}"
-
+            return f"${value:,.0f}"
         if kind in ("money", "futures_money"):
-            return f"${price:,.2f}"
-
+            return f"${value:,.2f}"
         if kind == "futures":
-            return f"{price:,.2f} pts"
-
+            return f"{value:,.2f} pts"
         if kind == "yield":
-            return f"{price:.2f}%"
-
-        return f"{price:,.2f}"
+            return f"{value:.2f}%"
+        return f"{value:,.2f}"
 
     def _find_equity_leader(self, snapshot):
-        allowed = ["market", "tech"]
-        valid = [(key, snapshot[key]) for key in allowed if self._safe_percent(snapshot[key].get("change_percent")) is not None]
-
+        valid = self._fresh_quotes(snapshot, ["market", "tech"])
         if not valid:
             return "No fresh S&P/Nasdaq data"
 
@@ -139,9 +131,7 @@ class MarketService:
         return f'{quote["label"]} ({self._format_change(quote)})'
 
     def _find_equity_weakest(self, snapshot):
-        allowed = ["market", "tech"]
-        valid = [(key, snapshot[key]) for key in allowed if self._safe_percent(snapshot[key].get("change_percent")) is not None]
-
+        valid = self._fresh_quotes(snapshot, ["market", "tech"])
         if not valid:
             return "No fresh S&P/Nasdaq data"
 
@@ -149,18 +139,31 @@ class MarketService:
         return f'{quote["label"]} ({self._format_change(quote)})'
 
     def _find_warning_signal(self, snapshot):
-        warning_keys = ["fear", "dollar", "rates"]
-        valid = [(key, snapshot[key]) for key in warning_keys if self._safe_percent(snapshot[key].get("change_percent")) is not None]
-
+        valid = self._fresh_quotes(snapshot, ["fear", "dollar", "rates"])
         if not valid:
             return "No fresh fear/rates/dollar data"
 
         key, quote = max(valid, key=lambda item: self._safe_percent(item[1].get("change_percent")) or 0)
         return f'{quote["label"]} ({self._format_change(quote)})'
 
+    def _fresh_quotes(self, snapshot, keys):
+        valid = []
+        for key in keys:
+            quote = snapshot.get(key, {})
+            if quote.get("status") == "Unavailable":
+                continue
+            if quote.get("stale"):
+                continue
+            if self._safe_percent(quote.get("change_percent")) is None:
+                continue
+            valid.append((key, quote))
+        return valid
+
     def _format_signal(self, snapshot, key):
-        quote = snapshot[key]
-        return f'{quote["label"]} ({self._format_change(quote)})'
+        quote = snapshot.get(key, {})
+        if quote.get("status") == "Unavailable":
+            return f'{quote.get("label", key)} (unavailable)'
+        return f'{quote.get("label", key)} ({self._format_change(quote)})'
 
     def _format_change(self, quote):
         if quote.get("status") == "Unavailable":
@@ -170,16 +173,18 @@ class MarketService:
         if value is None:
             return "no fresh % data"
 
-        if quote.get("stale") and abs(value) < 0.005:
-            return "flat / no fresh move"
+        if quote.get("stale"):
+            if abs(value) < 0.005:
+                return "flat / no fresh move"
+            return f"{value:+.2f}% stale"
 
         return f"{value:+.2f}%"
 
     def _after_market_note(self, snapshot):
         futures = [snapshot["market"]["symbol"], snapshot["tech"]["symbol"], snapshot["oil"]["symbol"]]
-
         stale_keys = [quote["label"] for quote in snapshot.values() if quote.get("stale")]
         stale_note = ""
+
         if stale_keys:
             stale_note = " Some symbols may show stale/no fresh intraday data outside active sessions."
 
@@ -192,25 +197,19 @@ class MarketService:
     def _detect_theme(self, market, tech, fear, oil, bitcoin):
         if oil >= 2:
             return "🛢 Oil / Geopolitics"
-
         if fear >= 5:
             return "😨 Volatility / Fear"
-
         if tech > market + 0.30 and tech > 0:
             return "🤖 Tech / AI"
-
         if bitcoin >= 2:
             return "₿ Crypto"
-
         if market > 0 and fear < 0:
             return "📈 Risk-On Market"
-
         if market < 0 and fear > 0:
             return "📉 Defensive Market"
-
         return "📈 Live Market"
 
-    def _safe_percent(self, value):
+    def _safe_number(self, value):
         try:
             result = float(value)
         except (TypeError, ValueError):
@@ -218,9 +217,11 @@ class MarketService:
 
         if math.isnan(result) or math.isinf(result):
             return None
-
         return result
+
+    def _safe_percent(self, value):
+        return self._safe_number(value)
 
     def _timestamp(self):
         now = datetime.now(ZoneInfo("America/Los_Angeles"))
-        return now.strftime("%I:%M %p PT").lstrip("0")
+        return now.strftime("%I:%M %p").lstrip("0")
