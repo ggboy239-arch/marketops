@@ -9,6 +9,16 @@ class BriefEngine:
     It gathers the data and returns a simple Python dictionary that Discord can display.
     """
 
+    CATEGORY_CHANNELS = {
+        "market": {"breaking-news"},
+        "general": {"general-news"},
+        "ai": {"ai-news"},
+        "fed": {"fed"},
+        "geo": {"geopolitics"},
+        "crypto": {"crypto"},
+        "reddit": {"reddit-hot"},
+    }
+
     def __init__(self):
         self.market_service = MarketService()
         self.news_engine = NewsEngine()
@@ -17,36 +27,53 @@ class BriefEngine:
         dashboard = self.market_service.get_dashboard()
 
         reports = {
-            "market": self.news_engine.get_top_news(limit=1, category="market"),
-            "general": self.news_engine.get_top_news(limit=1, category="general"),
-            "ai": self.news_engine.get_top_news(limit=1, category="ai"),
-            "fed": self.news_engine.get_top_news(limit=1, category="fed"),
-            "geo": self.news_engine.get_top_news(limit=1, category="geo"),
-            "crypto": self.news_engine.get_top_news(limit=1, category="crypto"),
-            "reddit": self.news_engine.get_top_news(limit=1, category="reddit"),
+            "market": self.news_engine.get_top_news(limit=3, category="market"),
+            "general": self.news_engine.get_top_news(limit=3, category="general"),
+            "ai": self.news_engine.get_top_news(limit=3, category="ai"),
+            "fed": self.news_engine.get_top_news(limit=3, category="fed"),
+            "geo": self.news_engine.get_top_news(limit=3, category="geo"),
+            "crypto": self.news_engine.get_top_news(limit=3, category="crypto"),
+            "reddit": self.news_engine.get_top_news(limit=3, category="reddit"),
         }
+
+        used_articles = set()
+        top_items = {}
+        for category, report in reports.items():
+            top_items[category] = self._first_matching_item(category, report, used_articles)
 
         return {
             "dashboard": dashboard,
-            "top_items": {
-                "market": self._first_item(reports["market"]),
-                "general": self._first_item(reports["general"]),
-                "ai": self._first_item(reports["ai"]),
-                "fed": self._first_item(reports["fed"]),
-                "geo": self._first_item(reports["geo"]),
-                "crypto": self._first_item(reports["crypto"]),
-                "reddit": self._first_item(reports["reddit"]),
-            },
+            "top_items": top_items,
             "provider_used": self._brief_provider_text(reports),
             "updated": dashboard.get("updated", "Unknown"),
             "watch_list": self._build_watch_list(dashboard),
         }
 
-    def _first_item(self, report):
+    def _first_matching_item(self, category, report, used_articles):
+        """Pick the first item that belongs to the section and was not already used.
+
+        Plain English: if a Fed headline gets routed to #fed, do not also show it
+        under Geopolitics just because it has an oil word in the title.
+        """
         items = report.get("items", [])
-        if not items:
-            return None
-        return items[0]
+        allowed_channels = self.CATEGORY_CHANNELS.get(category)
+
+        for item in items:
+            channel = item.get("channel")
+            if allowed_channels and channel not in allowed_channels:
+                continue
+
+            article_id = self._article_id(item)
+            if article_id in used_articles:
+                continue
+
+            used_articles.add(article_id)
+            return item
+
+        return None
+
+    def _article_id(self, item):
+        return item.get("link") or item.get("title") or str(id(item))
 
     def _brief_provider_text(self, reports):
         """Show all providers checked instead of only the last category checked.
