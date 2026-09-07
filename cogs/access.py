@@ -91,6 +91,11 @@ class Access(commands.Cog):
         if record:
             embed.add_field(name="Plan", value=record.get("plan", "unknown"), inline=True)
             embed.add_field(name="Expires", value=self.keys.format_expiration(record), inline=True)
+        embed.add_field(
+            name="Next Step",
+            value="Go to `#watchlist` and use `!profile`, `!add TSLA`, `!list`, and `!scan`.",
+            inline=False,
+        )
         embed.set_footer(text=VERSION)
         return embed
 
@@ -122,7 +127,7 @@ class Access(commands.Cog):
         embed.add_field(name="New Key(s)", value="\n".join(lines[:25]), inline=False)
         embed.add_field(
             name="How They Use It",
-            value="They type `!redeem KEY-HERE` in `#watchlist`, then use `!profile`, `!add TSLA`, `!list`, and `!scan`.",
+            value="They go to `#redeem-access` and type `!redeem KEY-HERE`. After that, they use personal commands in `#watchlist`.",
             inline=False,
         )
         embed.set_footer(text=VERSION)
