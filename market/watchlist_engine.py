@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from datetime import datetime
 from pathlib import Path
@@ -135,18 +136,16 @@ class WatchlistEngine:
                 "label": label,
                 "status": status,
                 "price": "Unavailable",
-                "change_percent": 0,
-                "line": f"{symbol} — unavailable right now",
+                "change_percent": 0.0,
+                "line": f"⚪ **{symbol}** ({label}) — unavailable right now",
             }
 
-        price = quote.get("price", 0)
+        price = self._safe_float(quote.get("price"))
         change_percent = self._safe_float(quote.get("change_percent"))
         direction = "🟢" if change_percent >= 0 else "🔴"
 
-        if quote.get("kind") == "crypto":
-            price_text = f"${price:,.0f}"
-        else:
-            price_text = f"${price:,.2f}"
+        price_text = self._format_price(price, quote.get("kind"))
+        change_text = self._format_percent(change_percent)
 
         return {
             "symbol": symbol,
@@ -154,20 +153,17 @@ class WatchlistEngine:
             "status": status,
             "price": price_text,
             "change_percent": change_percent,
-            "line": f"{direction} **{symbol}** ({label}) — {price_text} / {change_percent:+.2f}% / {status}",
+            "line": f"{direction} **{symbol}** ({label}) — {price_text} / {change_text} / {status}",
         }
 
     def _build_alert(self, symbol, quote, change_percent):
         label = quote.get("label", symbol)
-        price = quote.get("price", 0)
+        price = self._safe_float(quote.get("price"))
         status = quote.get("status", "Unknown")
         direction = "up" if change_percent >= 0 else "down"
         emoji = "🟢" if change_percent >= 0 else "🔴"
-
-        if quote.get("kind") == "crypto":
-            price_text = f"${price:,.0f}"
-        else:
-            price_text = f"${price:,.2f}"
+        price_text = self._format_price(price, quote.get("kind"))
+        change_text = self._format_percent(change_percent)
 
         return {
             "symbol": symbol,
@@ -178,7 +174,7 @@ class WatchlistEngine:
             "status": status,
             "emoji": emoji,
             "message": (
-                f"{emoji} **{symbol}** ({label}) is {direction} **{change_percent:+.2f}%** "
+                f"{emoji} **{symbol}** ({label}) is {direction} **{change_text}** "
                 f"at **{price_text}**. Status: {status}."
             ),
             "watch": self._watch_note(symbol, change_percent),
@@ -206,6 +202,16 @@ class WatchlistEngine:
             return "Watch VIX, rates, Fed headlines, and broad market breadth."
 
         return "Check the headline reason and confirm price/volume before acting."
+
+    def _format_price(self, price, kind):
+        if kind == "crypto":
+            return f"${price:,.0f}"
+        return f"${price:,.2f}"
+
+    def _format_percent(self, value):
+        if self._is_bad_number(value):
+            return "N/A"
+        return f"{value:+.2f}%"
 
     def _load_symbols(self):
         raw = os.getenv("WATCHLIST_SYMBOLS")
@@ -243,9 +249,20 @@ class WatchlistEngine:
 
     def _safe_float(self, value):
         try:
-            return float(value)
+            number = float(value)
         except (TypeError, ValueError):
             return 0.0
+
+        if self._is_bad_number(number):
+            return 0.0
+
+        return number
+
+    def _is_bad_number(self, value):
+        try:
+            return math.isnan(float(value)) or math.isinf(float(value))
+        except (TypeError, ValueError):
+            return True
 
     def _today_key(self):
         now = datetime.now(ZoneInfo("America/Los_Angeles"))
