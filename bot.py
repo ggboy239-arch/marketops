@@ -61,10 +61,11 @@ OWNER_AUDIT_COMMANDS = ["ticketlog", "keylog"]
 CALENDAR_COMMANDS = [
     "calendar", "marketcalendar", "cal", "calendarhelp",
     "calendarfetch", "calfetch", "refreshcalendar",
-    "events", "eventlist", "upcoming",
+    "events", "calendarlist", "eventlist", "upcoming",
     "calendartoday", "todaycal", "todaycalendar",
     "calendarweek", "weekcal", "weeklycalendar",
-    "calendarstatus", "calstatus", "calendaron", "calon", "calendaroff", "caloff",
+    "calendarstatus", "calstatus",
+    "calendaron", "calon", "calendaroff", "caloff",
 ]
 
 COMMAND_CHANNELS = {
