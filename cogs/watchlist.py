@@ -9,7 +9,7 @@ from discord.ext import commands, tasks
 from market.watchlist_engine import WatchlistEngine
 
 
-VERSION = "MarketOps v2.4.1"
+VERSION = "MarketOps v2.4.4"
 
 
 class Watchlist(commands.Cog):
