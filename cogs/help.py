@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 
-VERSION = "MarketOps v2.9.1"
+VERSION = "MarketOps v2.9.2"
 
 
 class MarketOpsHelp(commands.Cog):
@@ -102,6 +102,18 @@ class MarketOpsHelp(commands.Cog):
         )
 
         embed.add_field(
+            name="📱 Social / Video Monitor",
+            value=(
+                "`!social` — social/video monitor status → `#x-news`, `#video-news`, or `#trending-news`\n"
+                "`!xnews` — latest configured X public-account posts → `#x-news`\n"
+                "`!videonews` — latest Bloomberg/CNBC/Reuters video RSS items → `#video-news`\n"
+                "`!trending` — combined social/video watch → `#trending-news`\n"
+                "`!socialpost` — manually post routed social/video items"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
             name="🗓 Calendar",
             value=(
                 "`!calendarfetch` — pull official event calendar → `#market-calendar`\n"
@@ -131,7 +143,7 @@ class MarketOpsHelp(commands.Cog):
 
         embed.add_field(
             name="Best Flow",
-            value="`!pulse` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!learn candles`",
+            value="`!pulse` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!videonews` → `!learn candles`",
             inline=False,
         )
 
