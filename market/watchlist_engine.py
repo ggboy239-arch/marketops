@@ -6,14 +6,16 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from providers.finnhub_provider import FinnhubProvider
+from providers.marketaux_provider import MarketauxProvider
+from providers.rss_provider import RSSProvider
 
 
 class WatchlistEngine:
-    """Checks the user's watchlist and creates simple price-move alerts.
+    """Checks the user's watchlist and creates price + news alerts.
 
     Think of this file as the "decision brain" for watchlist alerts.
-    It does not talk to Discord directly. It only checks prices, decides what
-    matters, and returns alert data that a Discord cog can display.
+    It does not talk to Discord directly. It checks prices and headlines,
+    decides what matters, and returns alert data that a Discord cog can display.
     """
 
     DEFAULT_SYMBOLS = [
@@ -42,13 +44,34 @@ class WatchlistEngine:
         "BTC-USD": "Bitcoin",
     }
 
+    NEWS_TERMS = {
+        "NVDA": ["nvda", "nvidia"],
+        "AMD": ["amd", "advanced micro devices"],
+        "TSN": ["tsn", "tyson", "tyson foods"],
+        "RTX": ["rtx", "rtx corp", "raytheon"],
+        "LMT": ["lmt", "lockheed", "lockheed martin"],
+        "XOM": ["xom", "exxon", "exxon mobil", "exxonmobil"],
+        "CVX": ["cvx", "chevron"],
+        "SPY": ["spy", "s&p 500", "s&p", "spdr s&p"],
+        "QQQ": ["qqq", "nasdaq", "nasdaq 100"],
+        "BTC-USD": ["btc", "bitcoin", "crypto"],
+        "BTC": ["btc", "bitcoin", "crypto"],
+        "ETH": ["eth", "ethereum", "ether", "crypto"],
+    }
+
     def __init__(self):
         self.provider = FinnhubProvider()
+        self.marketaux_provider = MarketauxProvider()
+        self.rss_provider = RSSProvider()
         self.enabled = self._env_bool("WATCHLIST_ENABLED", default=True)
+        self.news_enabled = self._env_bool("WATCHLIST_NEWS_ALERTS", default=True)
+        self.rss_news_fallback = self._env_bool("WATCHLIST_NEWS_RSS_FALLBACK", default=True)
         self.symbols = self._load_symbols()
         self.move_threshold = float(os.getenv("WATCHLIST_MOVE_ALERT_PERCENT", "3"))
+        self.news_max_items = int(os.getenv("WATCHLIST_NEWS_MAX_ITEMS", "15"))
         self.alert_store_path = Path("data/watchlist_alerts.json")
         self.alert_memory = self._load_alert_memory()
+        self.last_news_provider = "Not checked yet"
 
     def get_watchlist_report(self):
         quotes = []
@@ -62,14 +85,15 @@ class WatchlistEngine:
             "symbols": self.symbols,
             "quotes": quotes,
             "move_threshold": self.move_threshold,
+            "news_enabled": self.news_enabled,
             "updated": self._timestamp(),
         }
 
     def scan_alerts(self, force=False):
-        """Scan the watchlist and return fresh alerts.
+        """Scan the watchlist and return fresh price + news alerts.
 
         force=False is used for automatic checks so the bot avoids reposting the
-        same symbol alert repeatedly during the same day.
+        same alert repeatedly during the same day.
         force=True is used for manual !alerts testing.
         """
         if not self.enabled:
@@ -78,8 +102,29 @@ class WatchlistEngine:
                 "alerts": [],
                 "updated": self._timestamp(),
                 "move_threshold": self.move_threshold,
+                "news_enabled": self.news_enabled,
+                "news_provider": self.last_news_provider,
             }
 
+        alerts = []
+        alerts.extend(self._scan_price_alerts(force=force))
+
+        if self.news_enabled:
+            alerts.extend(self._scan_news_alerts(force=force))
+
+        if alerts:
+            self._save_alert_memory()
+
+        return {
+            "enabled": True,
+            "alerts": alerts,
+            "updated": self._timestamp(),
+            "move_threshold": self.move_threshold,
+            "news_enabled": self.news_enabled,
+            "news_provider": self.last_news_provider,
+        }
+
+    def _scan_price_alerts(self, force=False):
         alerts = []
         today_key = self._today_key()
 
@@ -94,28 +139,77 @@ class WatchlistEngine:
             if abs(change_percent) < self.move_threshold:
                 continue
 
-            alert_key = f"{today_key}:{symbol}:{'up' if change_percent >= 0 else 'down'}"
+            alert_key = f"{today_key}:price:{symbol}:{'up' if change_percent >= 0 else 'down'}"
 
             if not force and alert_key in self.alert_memory:
                 continue
 
-            alert = self._build_alert(symbol, quote, change_percent)
+            alert = self._build_price_alert(symbol, quote, change_percent)
             alerts.append(alert)
             self.alert_memory[alert_key] = {
+                "type": "price",
                 "symbol": symbol,
                 "change_percent": change_percent,
                 "created": self._timestamp(),
             }
 
-        if alerts:
-            self._save_alert_memory()
+        return alerts
 
-        return {
-            "enabled": True,
-            "alerts": alerts,
-            "updated": self._timestamp(),
-            "move_threshold": self.move_threshold,
-        }
+    def _scan_news_alerts(self, force=False):
+        alerts = []
+        today_key = self._today_key()
+        items = self._get_news_items()
+
+        for item in items:
+            matched_symbols = self._match_symbols_to_headline(item)
+
+            for symbol in matched_symbols:
+                article_id = self._article_id(item)
+                alert_key = f"{today_key}:news:{symbol}:{article_id}"
+
+                if not force and alert_key in self.alert_memory:
+                    continue
+
+                alert = self._build_news_alert(symbol, item)
+                alerts.append(alert)
+                self.alert_memory[alert_key] = {
+                    "type": "news",
+                    "symbol": symbol,
+                    "title": item.get("title", ""),
+                    "created": self._timestamp(),
+                }
+
+        return alerts
+
+    def _get_news_items(self):
+        items = []
+        used = []
+
+        if self.marketaux_provider.enabled:
+            marketaux_items = self.marketaux_provider.get_latest_news(limit=self.news_max_items)
+            if marketaux_items:
+                items.extend(marketaux_items)
+                used.append("Marketaux")
+
+        if self.rss_news_fallback:
+            rss_items = self.rss_provider.get_latest_news(limit=self.news_max_items)
+            if rss_items:
+                items.extend(rss_items)
+                used.append("Reuters RSS")
+
+        self.last_news_provider = " + ".join(used) if used else "No news provider returned items"
+        return self._dedupe_news_items(items)
+
+    def _match_symbols_to_headline(self, item):
+        text = f'{item.get("title", "")} {item.get("summary", "")}'.lower()
+        matches = []
+
+        for symbol in self.symbols:
+            terms = self.NEWS_TERMS.get(symbol.upper(), [symbol.lower()])
+            if self._matches_any(text, terms):
+                matches.append(symbol)
+
+        return matches
 
     def _quote(self, symbol):
         kind = "crypto" if "BTC" in symbol.upper() or "ETH" in symbol.upper() else "money"
@@ -136,16 +230,18 @@ class WatchlistEngine:
                 "label": label,
                 "status": status,
                 "price": "Unavailable",
-                "change_percent": 0.0,
-                "line": f"⚪ **{symbol}** ({label}) — unavailable right now",
+                "change_percent": 0,
+                "line": f"{symbol} — unavailable right now",
             }
 
-        price = self._safe_float(quote.get("price"))
+        price = quote.get("price", 0)
         change_percent = self._safe_float(quote.get("change_percent"))
         direction = "🟢" if change_percent >= 0 else "🔴"
 
-        price_text = self._format_price(price, quote.get("kind"))
-        change_text = self._format_percent(change_percent)
+        if quote.get("kind") == "crypto":
+            price_text = f"${price:,.0f}"
+        else:
+            price_text = f"${price:,.2f}"
 
         return {
             "symbol": symbol,
@@ -153,19 +249,23 @@ class WatchlistEngine:
             "status": status,
             "price": price_text,
             "change_percent": change_percent,
-            "line": f"{direction} **{symbol}** ({label}) — {price_text} / {change_text} / {status}",
+            "line": f"{direction} **{symbol}** ({label}) — {price_text} / {change_percent:+.2f}% / {status}",
         }
 
-    def _build_alert(self, symbol, quote, change_percent):
+    def _build_price_alert(self, symbol, quote, change_percent):
         label = quote.get("label", symbol)
-        price = self._safe_float(quote.get("price"))
+        price = quote.get("price", 0)
         status = quote.get("status", "Unknown")
         direction = "up" if change_percent >= 0 else "down"
         emoji = "🟢" if change_percent >= 0 else "🔴"
-        price_text = self._format_price(price, quote.get("kind"))
-        change_text = self._format_percent(change_percent)
+
+        if quote.get("kind") == "crypto":
+            price_text = f"${price:,.0f}"
+        else:
+            price_text = f"${price:,.2f}"
 
         return {
+            "type": "price",
             "symbol": symbol,
             "label": label,
             "price": price_text,
@@ -174,10 +274,32 @@ class WatchlistEngine:
             "status": status,
             "emoji": emoji,
             "message": (
-                f"{emoji} **{symbol}** ({label}) is {direction} **{change_text}** "
+                f"{emoji} **{symbol}** ({label}) is {direction} **{change_percent:+.2f}%** "
                 f"at **{price_text}**. Status: {status}."
             ),
             "watch": self._watch_note(symbol, change_percent),
+        }
+
+    def _build_news_alert(self, symbol, item):
+        label = self.LABELS.get(symbol, symbol)
+        title = item.get("title", "Untitled")
+        source = item.get("source", "Unknown")
+        provider = item.get("provider", "Unknown")
+        link = item.get("link", "")
+        published_dt = item.get("published_dt")
+
+        return {
+            "type": "news",
+            "symbol": symbol,
+            "label": label,
+            "emoji": "📰",
+            "message": f"📰 **{symbol}** ({label}) has a fresh headline: **{title}**",
+            "watch": self._news_watch_note(symbol),
+            "title": title,
+            "source": source,
+            "provider": provider,
+            "link": link,
+            "age": self._age_label(published_dt),
         }
 
     def _watch_note(self, symbol, change_percent):
@@ -203,15 +325,22 @@ class WatchlistEngine:
 
         return "Check the headline reason and confirm price/volume before acting."
 
-    def _format_price(self, price, kind):
-        if kind == "crypto":
-            return f"${price:,.0f}"
-        return f"${price:,.2f}"
+    def _news_watch_note(self, symbol):
+        upper = symbol.upper()
 
-    def _format_percent(self, value):
-        if self._is_bad_number(value):
-            return "N/A"
-        return f"{value:+.2f}%"
+        if upper in ("NVDA", "AMD"):
+            return "Confirm if this is AI/chip demand, earnings, guidance, or analyst news."
+        if upper in ("RTX", "LMT"):
+            return "Confirm if this connects to defense spending, war, missiles, or contracts."
+        if upper in ("XOM", "CVX"):
+            return "Confirm if oil prices, OPEC, or geopolitical supply risk are moving."
+        if upper == "TSN":
+            return "Confirm if this is company-specific, food inflation, labor, plant, or demand news."
+        if upper in ("SPY", "QQQ"):
+            return "Check futures, VIX, rates, and whether this is broad market-moving news."
+        if "BTC" in upper:
+            return "Check BTC price, ETF flows, Coinbase, and broader risk appetite."
+        return "Verify the headline and check price/volume reaction before acting."
 
     def _load_symbols(self):
         raw = os.getenv("WATCHLIST_SYMBOLS")
@@ -249,20 +378,67 @@ class WatchlistEngine:
 
     def _safe_float(self, value):
         try:
-            number = float(value)
+            result = float(value)
         except (TypeError, ValueError):
             return 0.0
 
-        if self._is_bad_number(number):
+        if math.isnan(result) or math.isinf(result):
             return 0.0
 
-        return number
+        return result
 
-    def _is_bad_number(self, value):
+    def _matches_any(self, text, terms):
+        return any(self._term_match(text, term) for term in terms)
+
+    def _term_match(self, text, term):
+        clean = (term or "").strip().lower()
+        if not clean:
+            return False
+
+        if " " in clean or "-" in clean:
+            return clean in text
+
+        return f" {clean} " in f" {text} "
+
+    def _dedupe_news_items(self, items):
+        seen = set()
+        deduped = []
+
+        for item in items:
+            key = self._article_id(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+
+        return deduped
+
+    def _article_id(self, item):
+        value = item.get("link") or item.get("title", "")
+        return str(abs(hash(value)))
+
+    def _age_label(self, published_dt):
+        if published_dt is None:
+            return "Unknown"
+
         try:
-            return math.isnan(float(value)) or math.isinf(float(value))
-        except (TypeError, ValueError):
-            return True
+            now = datetime.now(ZoneInfo("UTC"))
+            if published_dt.tzinfo is None:
+                published_dt = published_dt.replace(tzinfo=ZoneInfo("UTC"))
+            minutes = max(0, int((now - published_dt.astimezone(ZoneInfo("UTC"))).total_seconds() // 60))
+        except Exception:
+            return "Unknown"
+
+        if minutes < 1:
+            return "just now"
+        if minutes < 60:
+            return f"{minutes}m ago"
+
+        hours = minutes // 60
+        remaining = minutes % 60
+        if remaining == 0:
+            return f"{hours}h ago"
+        return f"{hours}h {remaining}m ago"
 
     def _today_key(self):
         now = datetime.now(ZoneInfo("America/Los_Angeles"))
