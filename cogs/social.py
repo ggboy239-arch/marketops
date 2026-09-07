@@ -11,18 +11,22 @@ from discord.ext import commands, tasks
 from providers.social_provider import SocialProvider
 
 
-VERSION = "MarketOps Social v1.0.0"
+VERSION = "MarketOps Social v1.0.1"
 
 
 class SocialMonitor(commands.Cog):
-    """X/social/video news monitor for MarketOps."""
+    """X/social/video monitor for MarketOps.
+
+    Plain English: this is separate from the normal news monitor. It posts raw
+    X account posts and video-news items into the social/video channels only.
+    """
 
     def __init__(self, bot):
         self.bot = bot
         self.provider = SocialProvider()
         self.enabled = self._env_bool("SOCIAL_MONITOR_ENABLED", default=True)
-        self.poll_minutes = float(os.getenv("SOCIAL_POLL_MINUTES", "15"))
-        self.max_posts_per_channel = int(os.getenv("SOCIAL_MAX_POSTS_PER_CHANNEL", "2"))
+        self.poll_minutes = float(os.getenv("SOCIAL_POLL_MINUTES", "5"))
+        self.max_posts_per_channel = int(os.getenv("SOCIAL_MAX_POSTS_PER_CHANNEL", "3"))
         self.x_channel = os.getenv("SOCIAL_X_CHANNEL", "x-news")
         self.video_channel = os.getenv("SOCIAL_VIDEO_CHANNEL", "video-news")
         self.trending_channel = os.getenv("SOCIAL_TRENDING_CHANNEL", "trending-news")
@@ -47,7 +51,7 @@ class SocialMonitor(commands.Cog):
 
     @commands.command(name="xnews", aliases=["xposts", "twitternews"])
     async def xnews_prefix(self, ctx):
-        items = await asyncio.to_thread(self.provider.get_latest_items, 8, "x")
+        items = await asyncio.to_thread(self.provider.get_latest_items, 10, "x")
         await ctx.send(
             content=self._mobile_preview("x", items),
             embed=self._items_embed("𝕏 X / Public Account Posts", items),
@@ -65,10 +69,10 @@ class SocialMonitor(commands.Cog):
 
     @commands.command(name="trending", aliases=["trendnews", "socialnews"])
     async def trending_prefix(self, ctx):
-        items = await asyncio.to_thread(self.provider.get_latest_items, 10, "all")
+        items = await asyncio.to_thread(self.provider.get_latest_items, 10, "trending")
         await ctx.send(
             content=self._mobile_preview("trending", items),
-            embed=self._items_embed("🔥 Social / Video Trending Watch", items),
+            embed=self._items_embed("🔥 X Trending / Fast-Moving Posts", items),
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
@@ -77,9 +81,11 @@ class SocialMonitor(commands.Cog):
         if ctx.guild is None:
             await ctx.send("⚠️ Social posting only works inside a Discord server.")
             return
+
         items = await asyncio.to_thread(self.provider.get_latest_items, 25, "all")
-        posted, missing = await self._send_routed_items(ctx.guild, items, filter_seen=False)
-        message = f"✅ Posted social/video items into **{posted}** channel(s)."
+        trending_items = await asyncio.to_thread(self.provider.get_latest_items, 10, "trending")
+        posted, missing = await self._send_routed_items(ctx.guild, items + trending_items, filter_seen=False, include_trending=True)
+        message = f"✅ Posted social/video items into **{posted}** social channel(s)."
         if missing:
             message += "\n⚠️ Missing channels: " + ", ".join(f"#{name}" for name in missing)
         await ctx.send(message)
@@ -97,6 +103,9 @@ class SocialMonitor(commands.Cog):
 
         try:
             items = await asyncio.to_thread(self.provider.get_latest_items, 25, "all")
+            if self.trending_auto_post:
+                trending_items = await asyncio.to_thread(self.provider.get_latest_items, 10, "trending")
+                items.extend(trending_items)
             self._last_check = self.provider.last_status
 
             if not self.seen_items:
@@ -107,7 +116,12 @@ class SocialMonitor(commands.Cog):
 
             total_posted = 0
             for guild in self.bot.guilds:
-                posted, missing = await self._send_routed_items(guild, items, filter_seen=True)
+                posted, missing = await self._send_routed_items(
+                    guild,
+                    items,
+                    filter_seen=True,
+                    include_trending=self.trending_auto_post,
+                )
                 total_posted += posted
                 if missing:
                     print(f"⚠️ Missing social/video channels in {guild.name}: {', '.join(missing)}")
@@ -124,12 +138,12 @@ class SocialMonitor(commands.Cog):
     async def before_social_loop(self):
         await self.bot.wait_until_ready()
 
-    async def _send_routed_items(self, guild, items, filter_seen):
+    async def _send_routed_items(self, guild, items, filter_seen, include_trending=False):
         grouped = {
             self.x_channel: [],
             self.video_channel: [],
         }
-        if self.trending_auto_post:
+        if include_trending:
             grouped[self.trending_channel] = []
 
         for item in items:
@@ -142,8 +156,7 @@ class SocialMonitor(commands.Cog):
                 grouped[self.x_channel].append(item)
             elif item.get("type") == "video":
                 grouped[self.video_channel].append(item)
-
-            if self.trending_auto_post and item.get("type") in {"x", "video"}:
+            elif include_trending and item.get("type") == "trending":
                 grouped[self.trending_channel].append(item)
 
         posted = 0
@@ -167,14 +180,19 @@ class SocialMonitor(commands.Cog):
     def _status_embed(self):
         embed = discord.Embed(
             title="📱 MarketOps Social / Video Monitor",
-            description="Separate feed for X public posts and video-news clips. Treat these as early leads, then verify.",
+            description="Separate feed for raw X account posts and video clips. It does not mix with normal news channels.",
             color=discord.Color.blue(),
         )
         embed.add_field(name="Monitor", value="ON" if self.enabled else "OFF", inline=True)
         embed.add_field(name="Poll Rate", value=f"Every {self.poll_minutes:g} minute(s)", inline=True)
-        embed.add_field(name="Channels", value=f"X: `#{self.x_channel}`\nVideo: `#{self.video_channel}`\nTrending: `#{self.trending_channel}`", inline=False)
+        embed.add_field(
+            name="Channels",
+            value=f"X: `#{self.x_channel}`\nVideo: `#{self.video_channel}`\nTrending: `#{self.trending_channel}`",
+            inline=False,
+        )
         embed.add_field(name="Provider Status", value=self.provider.status_text()[:1024], inline=False)
         embed.add_field(name="Commands", value="`!xnews` • `!videonews` • `!trending` • `!socialpost` • `!social`", inline=False)
+        embed.add_field(name="Rule", value="Normal `!news` posts do not route into `#x-news`, `#video-news`, or `#trending-news`.", inline=False)
         embed.add_field(name="Last Auto Post", value=f"{self._last_auto_post} ({self._last_auto_post_count} channel update(s))", inline=False)
         embed.set_footer(text=VERSION)
         return embed
@@ -182,7 +200,7 @@ class SocialMonitor(commands.Cog):
     def _items_embed(self, title, items):
         embed = discord.Embed(
             title=title,
-            description="Public-source social/video watch. Verify before acting.",
+            description="Raw public-source feed. No extra decoding added.",
             color=discord.Color.gold(),
         )
         if not items:
@@ -199,21 +217,31 @@ class SocialMonitor(commands.Cog):
         unix = self._unix_time(item)
         time_line = f"<t:{unix}:f> (<t:{unix}:R>)" if unix else "Unknown time"
         open_line = f"\nOpen: [View item](<{link}>)" if link else ""
+        metrics_line = self._metrics_line(item)
         value = (
-            f"**{title[:220]}**\n"
+            f"**{title[:360]}**\n"
             f"Provider: **{item.get('provider', 'Unknown')}**\n"
-            f"Published: {time_line}\n"
-            f"Why it matters: {item.get('why', 'Early lead. Verify first.')}\n"
-            f"Watch: **{item.get('watch', 'Market reaction')}**"
+            f"Published: {time_line}"
+            f"{metrics_line}"
             f"{open_line}"
         )
         return value[:997] + "..." if len(value) > 1000 else value
+
+    def _metrics_line(self, item):
+        metrics = item.get("metrics") or {}
+        if not metrics:
+            return ""
+        return (
+            f"\nMetrics: {metrics.get('like_count', 0)} likes • "
+            f"{metrics.get('retweet_count', 0)} reposts • "
+            f"{metrics.get('reply_count', 0)} replies"
+        )
 
     def _mobile_preview(self, category, items):
         if not items:
             return None
         first = items[0]
-        emoji = "𝕏" if first.get("type") == "x" else "🎥" if first.get("type") == "video" else "🔥"
+        emoji = "𝕏" if first.get("type") == "x" else "🔥" if first.get("type") == "trending" else "🎥" if first.get("type") == "video" else "📱"
         source = self._safe_text(first.get("source", "Social"))
         title = self._safe_text(first.get("title", "Untitled"))[:130]
         extra = f" +{len(items) - 1} more" if len(items) > 1 else ""
@@ -226,7 +254,7 @@ class SocialMonitor(commands.Cog):
         if "video" in cleaned:
             return "🎥 Video News"
         if "trending" in cleaned:
-            return "🔥 Social / Video Trending Watch"
+            return "🔥 X Trending / Fast-Moving Posts"
         return "📱 Social / Video Watch"
 
     def _find_text_channel(self, guild, target_name):
