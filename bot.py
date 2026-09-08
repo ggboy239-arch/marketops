@@ -49,11 +49,13 @@ PERSONAL_WATCHLIST_COMMANDS = [
 SHARED_WATCHLIST_COMMANDS = [
     "watchlist", "alerts", "watch", "unwatch", "watchreset", "alertstatus",
     "alertson", "alertsoff", "newson", "newsoff", "threshold",
+    "watchtest", "quotetest", "pricecheck",
 ]
 
 ADMIN_KEY_COMMANDS = [
     "genkey", "adminkey", "genkeys", "revokekey", "adminusers",
-    "renewals", "approverenew", "denyrenew", "tickethelp", "ticketadmin",
+    "renewals", "approverenew", "denyrenew", "syncroles",
+    "tickethelp", "ticketadmin",
 ]
 
 OWNER_AUDIT_COMMANDS = ["ticketlog", "keylog"]
@@ -86,6 +88,8 @@ COMMAND_CHANNELS = {
     "status": ["bot-status"],
     "market": ["market-dashboard"],
     "brief": ["morning-brief"],
+    "briefnow": ["morning-brief"],
+    "morningbrief": ["morning-brief"],
     "learn": ["market-school"],
     "playbook": ["market-school"],
     **{command: ["watchlist"] for command in SHARED_WATCHLIST_COMMANDS},
