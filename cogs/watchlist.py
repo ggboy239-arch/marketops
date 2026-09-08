@@ -9,7 +9,7 @@ from discord.ext import commands, tasks
 from market.watchlist_engine import WatchlistEngine
 
 
-VERSION = "MarketOps v2.4.5"
+VERSION = "MarketOps v2.5.0"
 
 
 class Watchlist(commands.Cog):
@@ -44,6 +44,12 @@ class Watchlist(commands.Cog):
         report = await asyncio.to_thread(self.watchlist.scan_alerts, True)
         await interaction.followup.send(embed=self._build_alerts_embed(report))
 
+    @app_commands.command(name="watchtest", description="Check watchlist quote data health.")
+    async def watchtest_slash(self, interaction: discord.Interaction, symbol: str = None):
+        await interaction.response.defer(thinking=True)
+        report = await asyncio.to_thread(self.watchlist.get_price_health_report, symbol)
+        await interaction.followup.send(embed=self._build_health_embed(report))
+
     @app_commands.command(name="watch", description="Add a ticker to your MarketOps watchlist.")
     async def watch_slash(self, interaction: discord.Interaction, symbol: str):
         await interaction.response.defer(thinking=True)
@@ -62,7 +68,7 @@ class Watchlist(commands.Cog):
             report = await asyncio.to_thread(self.watchlist.get_watchlist_report)
             await ctx.send(embed=self._build_watchlist_embed(report))
         except Exception as error:
-            print(f"❌ !watchlist error: {error}")
+            print(f"❌ !watchlist error: {error!r}")
             await ctx.send("⚠️ MarketOps had trouble loading the watchlist. Check the terminal for the error.")
 
     @commands.command(name="alerts")
@@ -71,8 +77,17 @@ class Watchlist(commands.Cog):
             report = await asyncio.to_thread(self.watchlist.scan_alerts, True)
             await ctx.send(embed=self._build_alerts_embed(report))
         except Exception as error:
-            print(f"❌ !alerts error: {error}")
+            print(f"❌ !alerts error: {error!r}")
             await ctx.send("⚠️ MarketOps had trouble scanning alerts. Check the terminal for the error.")
+
+    @commands.command(name="watchtest", aliases=["quotetest", "pricecheck"])
+    async def watchtest_prefix(self, ctx, symbol: str = None):
+        try:
+            report = await asyncio.to_thread(self.watchlist.get_price_health_report, symbol)
+            await ctx.send(embed=self._build_health_embed(report))
+        except Exception as error:
+            print(f"❌ !watchtest error: {error!r}")
+            await ctx.send("⚠️ MarketOps had trouble testing quote data. Check the terminal for the error.")
 
     @commands.command(name="watch")
     async def watch_prefix(self, ctx, symbol: str = ""):
@@ -156,7 +171,7 @@ class Watchlist(commands.Cog):
                     continue
                 await channel.send(embed=self._build_alerts_embed(report))
         except Exception as error:
-            print(f"❌ Watchlist loop error: {error}")
+            print(f"❌ Watchlist loop error: {error!r}")
 
     def _build_watchlist_embed(self, report):
         embed = discord.Embed(
@@ -169,7 +184,19 @@ class Watchlist(commands.Cog):
             embed.add_field(name="No symbols found", value="Use `!watch NVDA` or add WATCHLIST_SYMBOLS to your .env file.", inline=False)
         else:
             value = "\n".join(item["line"] for item in quotes[:15])
-            embed.add_field(name="Current Watchlist", value=value, inline=False)
+            embed.add_field(name="Current Watchlist", value=value[:1024], inline=False)
+
+        health = report.get("health_counts", {})
+        embed.add_field(
+            name="Data Health",
+            value=(
+                f"Provider: **{report.get('data_provider', 'Unknown')}**\n"
+                f"Fresh: **{health.get('fresh', 0)}** • Closed: **{health.get('closed', 0)}** • "
+                f"Stale: **{health.get('stale', 0)}** • Unavailable: **{health.get('unavailable', 0)}**\n"
+                f"Stale price alerts skipped: **{'YES' if report.get('skip_stale_price_alerts') else 'NO'}**"
+            ),
+            inline=False,
+        )
 
         embed.add_field(
             name="Commands",
@@ -177,6 +204,7 @@ class Watchlist(commands.Cog):
                 "`!watch TSLA` adds a ticker\n"
                 "`!unwatch CVX` removes a ticker\n"
                 "`!threshold 2` changes price sensitivity\n"
+                "`!watchtest` checks quote health\n"
                 "`!alertstatus` shows alert settings\n"
                 "`!watchreset` resets to .env/default list"
             ),
@@ -184,8 +212,8 @@ class Watchlist(commands.Cog):
         )
         embed.add_field(name="Price Alert Rule", value=f'Alert when a symbol moves **±{report.get("move_threshold", 3):g}%** or more.', inline=False)
         embed.add_field(
-            name="News Alert Rule",
-            value="Ticker/company headlines are scanned when news alerts are ON. Quality labels help you judge the source.",
+            name="Accuracy Note",
+            value="Watchlist uses free quote data. Treat it as a scanner/alert lead, then confirm with `!chart` or your broker before acting.",
             inline=False,
         )
         embed.set_footer(text=f'Updated {report.get("updated", "Unknown")} • {VERSION}')
@@ -201,13 +229,45 @@ class Watchlist(commands.Cog):
         if not report.get("enabled", True):
             embed.add_field(name="Watchlist disabled", value="Run `!alertson` to turn it back on.", inline=False)
         elif not alerts:
-            embed.add_field(name="No active alerts", value=f'No symbol moved ±{report.get("move_threshold", 3):g}% or had a fresh matched headline right now.', inline=False)
+            stale_note = " Stale price quotes are skipped." if report.get("skip_stale_price_alerts") else ""
+            embed.add_field(name="No active alerts", value=f'No symbol moved ±{report.get("move_threshold", 3):g}% or had a fresh matched headline right now.{stale_note}', inline=False)
         else:
             for alert in alerts[:10]:
                 embed.add_field(name=self._alert_title(alert), value=self._alert_value(alert), inline=False)
 
+        embed.add_field(name="Price Data", value=f"Provider: **{report.get('data_provider', 'Unknown')}**", inline=False)
         if report.get("news_enabled"):
             embed.add_field(name="News Provider", value=report.get("news_provider", "Not checked yet"), inline=False)
+        embed.set_footer(text=f'Checked {report.get("updated", "Unknown")} • {VERSION}')
+        return embed
+
+    def _build_health_embed(self, report):
+        embed = discord.Embed(
+            title="🧪 Watchlist Quote Health",
+            description="Use this to see whether watchlist price data is fresh enough to trust as an alert lead.",
+            color=discord.Color.gold(),
+        )
+        checks = report.get("checks", [])
+        if not checks:
+            embed.add_field(name="No symbols checked", value="Use `!watchtest` or `!watchtest TSLA`.", inline=False)
+        else:
+            lines = []
+            for item in checks[:20]:
+                lines.append(item.get("line", "Unknown quote"))
+            embed.add_field(name="Quote Checks", value="\n".join(lines)[:1024], inline=False)
+
+        summary = report.get("summary", {})
+        embed.add_field(
+            name="Summary",
+            value=(
+                f"Fresh: **{summary.get('fresh', 0)}** • Closed: **{summary.get('closed', 0)}** • "
+                f"Stale: **{summary.get('stale', 0)}** • Unavailable: **{summary.get('unavailable', 0)}**"
+            ),
+            inline=False,
+        )
+        embed.add_field(name="Provider", value=report.get("data_provider", "Unknown"), inline=True)
+        embed.add_field(name="Stale Alerts Skipped", value="YES" if report.get("skip_stale_price_alerts") else "NO", inline=True)
+        embed.add_field(name="Note", value=report.get("note", "Confirm with chart/broker before acting."), inline=False)
         embed.set_footer(text=f'Checked {report.get("updated", "Unknown")} • {VERSION}')
         return embed
 
@@ -223,6 +283,8 @@ class Watchlist(commands.Cog):
         embed.add_field(name="Channel", value=f'#{status.get("channel_name", "watchlist")}', inline=True)
         embed.add_field(name="Poll Time", value=f'{status.get("poll_minutes", 15):g} minutes', inline=True)
         embed.add_field(name="Threshold", value=f'±{status.get("move_threshold", 3):g}%', inline=True)
+        embed.add_field(name="Data Provider", value=status.get("data_provider", "Unknown"), inline=False)
+        embed.add_field(name="Stale Price Alerts", value="Skipped" if status.get("skip_stale_price_alerts") else "Allowed", inline=True)
         embed.add_field(name="Symbols", value=", ".join(status.get("symbols", [])) or "None", inline=False)
         embed.set_footer(text=f'Checked {status.get("updated", "Unknown")} • {VERSION}')
         return embed
@@ -251,7 +313,11 @@ class Watchlist(commands.Cog):
                 f'Watch: {alert.get("watch", "Verify before acting.")}'
                 f"{open_line}"
             )
-        return f'{alert.get("message", "Price alert")}\nWatch: {alert.get("watch", "Verify before acting.")}'
+        return (
+            f'{alert.get("message", "Price alert")}\n'
+            f'Data: **{alert.get("data_confidence", "Unknown")}**\n'
+            f'Watch: {alert.get("watch", "Verify before acting.")}'
+        )
 
     def _find_text_channel(self, guild, target_name):
         target = self._clean_channel_name(target_name)
