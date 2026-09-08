@@ -136,16 +136,18 @@ Independently verify the chosen topic before writing:
             "Content-Type": "application/json",
         }
 
-        preferred_tool = os.getenv("OPENAI_WEB_SEARCH_TOOL", "web_search_preview").strip()
+        preferred_tool = os.getenv("OPENAI_WEB_SEARCH_TOOL", "web_search").strip()
         tool_types = [preferred_tool]
-        if preferred_tool != "web_search":
-            tool_types.append("web_search")
+        for fallback_tool in ("web_search", "web_search_preview"):
+            if fallback_tool not in tool_types:
+                tool_types.append(fallback_tool)
 
         last_error = None
         for tool_type in tool_types:
             payload = {
                 "model": self.model,
                 "tools": [{"type": tool_type}],
+                "tool_choice": "required",
                 "input": prompt,
                 "max_output_tokens": 2200,
             }
