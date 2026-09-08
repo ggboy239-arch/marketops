@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 
-VERSION = "MarketOps v2.9.4"
+VERSION = "MarketOps v2.9.5"
 
 
 class MarketOpsHelp(commands.Cog):
@@ -55,7 +55,8 @@ class MarketOpsHelp(commands.Cog):
             name="🌅 Brief",
             value=(
                 "`!brief` — full market brief → `#morning-brief`\n"
-                "`!brief schedule` — show scheduled brief times"
+                "`!brief schedule` — show auto-post settings and last error\n"
+                "`!brief post` — test-send one brief into the configured brief channel"
             ),
             inline=False,
         )
@@ -63,7 +64,7 @@ class MarketOpsHelp(commands.Cog):
         embed.add_field(
             name="👤 Personal User Commands",
             value=(
-                "`!redeem KEY-HERE` — unlock personal commands → `#redeem-access`\n"
+                "`!redeem KEY-HERE` — unlock personal commands and auto-assign user role → `#redeem-access`\n"
                 "`!profile` — show your setup → `#watchlist`\n"
                 "`!timezone America/New_York` — set your timezone → `#watchlist`\n"
                 "`!brief-times 06:00,12:00,16:15` — set your times → `#watchlist`\n"
@@ -77,7 +78,8 @@ class MarketOpsHelp(commands.Cog):
         embed.add_field(
             name="📌 Shared Watchlist / Alerts",
             value=(
-                "`!watchlist` — show shared watched symbols → `#watchlist`\n"
+                "`!watchlist` — show shared watched symbols and data health → `#watchlist`\n"
+                "`!watchtest` — test quote freshness/accuracy health → `#watchlist`\n"
                 "`!alerts` — scan shared alerts → `#watchlist`\n"
                 "`!watch TSLA` / `!unwatch CVX` — edit shared list → `#watchlist`\n"
                 "`!threshold 2` — set shared price alert percent → `#watchlist`"
@@ -130,7 +132,8 @@ class MarketOpsHelp(commands.Cog):
             value=(
                 "Admin keys/tickets: `#admin-keys`\n"
                 "Owner audit logs: `#owner-audit`\n"
-                "Ticket panel: `!ticketpanel` → `#marketops-commands`"
+                "Ticket panel: `!ticketpanel` → `#marketops-commands`\n"
+                "Role sync: `!syncroles` → `#admin-keys`"
             ),
             inline=False,
         )
@@ -143,7 +146,7 @@ class MarketOpsHelp(commands.Cog):
 
         embed.add_field(
             name="Best Flow",
-            value="`!pulse` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!videonews` → optional `!xnews` later if X token is added",
+            value="`!pulse` → `!watchtest` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!videonews` → optional `!xnews` later if X token is added",
             inline=False,
         )
 
