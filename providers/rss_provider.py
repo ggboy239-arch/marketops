@@ -15,14 +15,14 @@ load_dotenv()
 class RSSProvider:
     """Fetches trusted public RSS feeds for MarketOps news.
 
-    Reuters stays the main trusted source, but this provider can also pull
-    major U.S./world news from AP/NPR/CNBC/BBC/Yahoo Finance as a second
-    data point for events that can affect markets or companies.
+    Reuters stays the main source. Major AP/NPR/CNBC/BBC feeds are second
+    data points. Yahoo Finance direct feed is off by default because it can
+    flood #breaking-news with stock-pick articles and stock-price pages.
     """
 
     REUTERS_ENV_FEEDS = [
         ("Reuters Markets", "REUTERS_MARKETS_RSS", "📊 Broad Market"),
-        ("Reuters Business", "REUTERS_BUSINESS_RSS", "📊 Broad Market"),
+        ("Reuters Business", "REUTERS_BUSINESS_RSS", "🗞 General News"),
         ("Reuters General", "REUTERS_GENERAL_RSS", "🗞 General News"),
         ("Reuters US", "REUTERS_US_RSS", "🗞 General News"),
         ("Reuters Technology", "REUTERS_TECH_RSS", "🤖 AI / Tech"),
@@ -34,35 +34,35 @@ class RSSProvider:
     REUTERS_SEARCH_FEEDS = [
         {
             "name": "Reuters Markets",
-            "query": 'site:reuters.com/markets (stocks OR futures OR "Wall Street" OR Nasdaq OR "S&P 500" OR "global markets" OR yields OR oil)',
+            "query": 'site:reuters.com/markets ("stock futures" OR "Wall Street" OR "S&P 500" OR "Nasdaq" OR "Dow" OR "global markets" OR yields OR "oil prices" OR "market wrap")',
             "category_hint": "📊 Broad Market",
             "trusted_source": "Reuters",
             "trusted_aliases": ["reuters"],
         },
         {
             "name": "Reuters General News",
-            "query": 'site:reuters.com ("White House" OR Congress OR "Supreme Court" OR election OR cyberattack OR hurricane OR wildfire OR immigration OR border OR protest OR strike OR "national emergency" OR tariff OR sanctions OR "supply chain" OR antitrust OR lawsuit OR regulation)',
+            "query": 'site:reuters.com ("White House" OR Congress OR "Supreme Court" OR election OR cyberattack OR hurricane OR wildfire OR strike OR "national emergency" OR tariff OR sanctions OR "supply chain" OR antitrust OR lawsuit OR regulation OR layoffs OR "job cuts")',
             "category_hint": "🗞 General News",
             "trusted_source": "Reuters",
             "trusted_aliases": ["reuters"],
         },
         {
             "name": "Reuters AI / Tech",
-            "query": 'site:reuters.com (AI OR "artificial intelligence" OR Nvidia OR AMD OR semiconductor OR chips OR Microsoft OR Amazon OR Apple OR data center)',
+            "query": 'site:reuters.com (AI OR "artificial intelligence" OR Nvidia OR AMD OR semiconductor OR chips OR GPU OR "data center" OR OpenAI)',
             "category_hint": "🤖 AI / Tech",
             "trusted_source": "Reuters",
             "trusted_aliases": ["reuters"],
         },
         {
             "name": "Reuters Fed / Rates",
-            "query": 'site:reuters.com (Fed OR "Federal Reserve" OR Powell OR inflation OR CPI OR PPI OR yields OR Treasury OR jobs OR payroll OR "rate cut" OR "rate hike")',
+            "query": 'site:reuters.com (Fed OR "Federal Reserve" OR Powell OR inflation OR CPI OR PPI OR PCE OR yields OR Treasury OR jobs OR payroll OR "rate cut" OR "rate hike" OR "jobless claims")',
             "category_hint": "🏦 Fed / Rates",
             "trusted_source": "Reuters",
             "trusted_aliases": ["reuters"],
         },
         {
             "name": "Reuters Oil / Geopolitics",
-            "query": 'site:reuters.com (oil OR crude OR OPEC OR Iran OR Israel OR Lebanon OR Hezbollah OR Hormuz OR Ukraine OR Russia OR China OR Taiwan OR NATO OR sanctions OR missile OR attack)',
+            "query": 'site:reuters.com (oil OR crude OR OPEC OR Iran OR Israel OR Lebanon OR Hezbollah OR Hormuz OR Ukraine OR Russia OR China OR Taiwan OR NATO OR sanctions OR missile OR attack OR tariff)',
             "category_hint": "🛢 Oil / Geopolitics",
             "trusted_source": "Reuters",
             "trusted_aliases": ["reuters"],
@@ -79,7 +79,7 @@ class RSSProvider:
     MAJOR_SEARCH_FEEDS = [
         {
             "name": "AP Major News",
-            "query": 'site:apnews.com ("White House" OR Congress OR "Supreme Court" OR Fed OR inflation OR jobs OR oil OR Iran OR Israel OR Russia OR Ukraine OR China OR Taiwan OR tariff OR sanctions OR cyberattack OR strike OR lawsuit OR antitrust OR "supply chain" OR banking OR "data breach")',
+            "query": 'site:apnews.com ("White House" OR Congress OR "Supreme Court" OR Fed OR inflation OR jobs OR oil OR Iran OR Israel OR Russia OR Ukraine OR China OR Taiwan OR tariff OR sanctions OR cyberattack OR strike OR lawsuit OR antitrust OR "supply chain" OR banking OR "data breach" OR layoffs OR "job cuts")',
             "category_hint": "🗞 General News",
             "trusted_source": "AP News",
             "trusted_aliases": ["ap news", "associated press", "apnews"],
@@ -92,8 +92,8 @@ class RSSProvider:
             "trusted_aliases": ["npr", "npr.org"],
         },
         {
-            "name": "CNBC Top News",
-            "query": 'site:cnbc.com (markets OR stocks OR economy OR Fed OR inflation OR oil OR tech OR Nvidia OR AMD OR tariff OR White House OR "Supreme Court" OR cyberattack OR strike)',
+            "name": "CNBC Market/Major News",
+            "query": 'site:cnbc.com ("stock futures" OR "Wall Street" OR "S&P 500" OR Nasdaq OR "Dow" OR Fed OR inflation OR oil OR tariff OR "White House" OR "Supreme Court" OR cyberattack OR strike OR layoffs OR "job cuts" OR "cuts outlook" OR "earnings warning")',
             "category_hint": "📊 Broad Market",
             "trusted_source": "CNBC",
             "trusted_aliases": ["cnbc"],
@@ -118,7 +118,7 @@ class RSSProvider:
         {
             "name": "CNBC Top News",
             "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-            "category_hint": "📊 Broad Market",
+            "category_hint": "🗞 General News",
             "trusted_source": "CNBC",
             "trusted_aliases": ["cnbc"],
         },
@@ -129,25 +129,23 @@ class RSSProvider:
             "trusted_source": "BBC",
             "trusted_aliases": ["bbc", "bbc.co.uk", "bbc.com"],
         },
-        {
-            "name": "Yahoo Finance",
-            "url": "https://finance.yahoo.com/news/rssindex",
-            "category_hint": "📊 Broad Market",
-            "trusted_source": "Yahoo Finance",
-            "trusted_aliases": ["yahoo finance", "finance.yahoo"],
-        },
     ]
+
+    YAHOO_DIRECT_FEED = {
+        "name": "Yahoo Finance",
+        "url": "https://finance.yahoo.com/news/rssindex",
+        "category_hint": "🗞 General News",
+        "trusted_source": "Yahoo Finance",
+        "trusted_aliases": ["yahoo finance", "finance.yahoo"],
+    }
 
     EXTRA_FEEDS = [
         {
             "name": "Yahoo Finance",
             "url": "https://finance.yahoo.com/news/rssindex",
-            "category_hint": "📊 Broad Market",
-        },
-        {
-            "name": "CNBC Top News",
-            "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-            "category_hint": "📊 Broad Market",
+            "category_hint": "🗞 General News",
+            "trusted_source": "Yahoo Finance",
+            "trusted_aliases": ["yahoo finance", "finance.yahoo"],
         },
     ]
 
@@ -155,11 +153,12 @@ class RSSProvider:
         self.reuters_only = self._env_bool("NEWS_REUTERS_ONLY", default=True)
         self.include_major_sources = self._env_bool("NEWS_INCLUDE_MAJOR_SOURCES", default=True)
         self.include_extra_sources = self._env_bool("NEWS_INCLUDE_EXTRA_SOURCES", default=False)
+        self.include_yahoo_direct = self._env_bool("NEWS_INCLUDE_YAHOO_DIRECT", default=False)
         # This is NOT the delay. It is only the search window used to find fresh items.
         self.lookback = os.getenv("NEWS_LOOKBACK", "2h")
         self.feeds = feeds or self._load_feeds()
         self.headers = {
-            "User-Agent": "MarketOps/0.7.4 (trusted market and major news monitor)",
+            "User-Agent": "MarketOps/0.7.8 (strict breaking-news RSS monitor)",
         }
 
     def get_latest_news(self, limit=10):
@@ -176,9 +175,11 @@ class RSSProvider:
     def source_policy(self):
         reuters_mode = "ON" if self.reuters_only else "OFF"
         major_mode = "ON" if self.include_major_sources else "OFF"
+        yahoo_mode = "ON" if self.include_yahoo_direct else "OFF"
         return (
             f"Reuters-only verification is {reuters_mode}. "
-            f"Major-source mode is {major_mode}: AP/NPR/CNBC/BBC/Yahoo Finance can be used as second data points. "
+            f"Major-source mode is {major_mode}: Reuters/AP/NPR/CNBC/BBC are used as core feeds. "
+            f"Yahoo Finance direct feed is {yahoo_mode}; it stays OFF by default to avoid stock-pick and stock-price-page noise. "
             f"Search lookback is {self.lookback}; this is a search window, not a delay."
         )
 
@@ -221,6 +222,9 @@ class RSSProvider:
                     }
                 )
             feeds.extend(self.MAJOR_DIRECT_FEEDS)
+
+        if self.include_yahoo_direct:
+            feeds.append(self.YAHOO_DIRECT_FEED)
 
         if self.include_extra_sources and not self.reuters_only:
             feeds.extend(self.EXTRA_FEEDS)
@@ -360,10 +364,13 @@ class RSSProvider:
 
     def _clean_google_news_title(self, title):
         title = re.sub(r"\s+-\s+Reuters$", "", title).strip()
+        title = re.sub(r"\s+-\s+reuters\.com$", "", title, flags=re.IGNORECASE).strip()
         title = re.sub(r"\s+-\s+AP News$", "", title).strip()
         title = re.sub(r"\s+-\s+NPR$", "", title).strip()
         title = re.sub(r"\s+-\s+CNBC$", "", title).strip()
+        title = re.sub(r"\s+-\s+cnbc\.com$", "", title, flags=re.IGNORECASE).strip()
         title = re.sub(r"\s+-\s+BBC$", "", title).strip()
+        title = re.sub(r"\s+-\s+Yahoo Finance$", "", title).strip()
         return title
 
     def _parse_date(self, value):
@@ -385,9 +392,9 @@ class RSSProvider:
         unique_items = []
 
         for item in items:
-            title = item.get("title", "").lower()
+            title = self._title_key(item.get("title", ""))
             link = item.get("link", "")
-            key = (title, link)
+            key = title or link
 
             if key in seen:
                 continue
@@ -396,6 +403,12 @@ class RSSProvider:
             unique_items.append(item)
 
         return unique_items
+
+    def _title_key(self, title):
+        value = (title or "").lower()
+        value = re.sub(r"\s+-\s+(reuters|reuters\.com|ap news|npr|cnbc|cnbc\.com|bbc|yahoo finance)$", "", value)
+        value = re.sub(r"\s+", " ", value)
+        return value.strip()
 
     def _sort_items(self, items):
         def sort_key(item):
