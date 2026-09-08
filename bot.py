@@ -83,6 +83,7 @@ X_NEWS_COMMANDS = ["xnews", "xposts", "twitternews"]
 VIDEO_NEWS_COMMANDS = ["videonews", "videos", "newsvideos"]
 TRENDING_NEWS_COMMANDS = ["trending", "trendnews", "socialnews"]
 SOCIAL_POST_COMMANDS = ["socialpost", "xpost", "videopost"]
+POLICY_BRIEF_COMMANDS = ["policy", "policybrief", "openai"]
 
 COMMAND_CHANNELS = {
     "status": ["bot-status"],
@@ -107,6 +108,7 @@ COMMAND_CHANNELS = {
     **{command: ["video-news"] for command in VIDEO_NEWS_COMMANDS},
     **{command: ["trending-news"] for command in TRENDING_NEWS_COMMANDS},
     **{command: ["x-news", "video-news", "trending-news"] for command in SOCIAL_POST_COMMANDS},
+    **{command: ["openai-news-for-me"] for command in POLICY_BRIEF_COMMANDS},
     "ticketpanel": ["marketops-commands", "admin-keys"],
     "closeticket": ["admin-keys"],
     "close": ["admin-keys"],
@@ -230,6 +232,7 @@ async def load():
     await bot.load_extension("cogs.news")
     await bot.load_extension("cogs.social")
     await bot.load_extension("cogs.brief")
+    await bot.load_extension("cogs.policy")
     await bot.load_extension("cogs.watchlist")
     await bot.load_extension("cogs.learn")
     await bot.load_extension("cogs.help")

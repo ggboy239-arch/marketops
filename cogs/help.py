@@ -62,6 +62,17 @@ class MarketOpsHelp(commands.Cog):
         )
 
         embed.add_field(
+            name="🧠 OpenAI News for Me",
+            value=(
+                "`!policy` — create today's verified policy-to-market lesson → `#openai-news-for-me`\n"
+                "`!policy post` — test-send a lesson into the personal channel\n"
+                "`!policy status` — show schedule, OpenAI readiness, and last error\n"
+                "Auto-post: weekdays at `05:30 PT`"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
             name="👤 Personal User Commands",
             value=(
                 "`!redeem KEY-HERE` — unlock personal commands and auto-assign user role → `#redeem-access`\n"

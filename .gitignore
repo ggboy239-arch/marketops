@@ -11,6 +11,7 @@ __pycache__/
 
 # Runtime State
 data/seen_news.json
+data/policy_brief_state.json
 
 # VS Code
 .vscode/
