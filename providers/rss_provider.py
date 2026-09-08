@@ -48,7 +48,7 @@ class RSSProvider:
         },
         {
             "name": "Reuters AI / Tech",
-            "query": 'site:reuters.com (AI OR "artificial intelligence" OR Nvidia OR AMD OR semiconductor OR chips OR GPU OR "data center" OR OpenAI)',
+            "query": 'site:reuters.com (OpenAI OR ChatGPT OR "artificial intelligence" OR "generative AI" OR "AI infrastructure" OR "AI model" OR "AI safety" OR Nvidia OR AMD OR semiconductor OR semiconductors OR chipmaker OR GPU OR "data center")',
             "category_hint": "🤖 AI / Tech",
             "trusted_source": "Reuters",
             "trusted_aliases": ["reuters"],
@@ -158,7 +158,7 @@ class RSSProvider:
         self.lookback = os.getenv("NEWS_LOOKBACK", "2h")
         self.feeds = feeds or self._load_feeds()
         self.headers = {
-            "User-Agent": "MarketOps/0.7.8 (strict breaking-news RSS monitor)",
+            "User-Agent": "MarketOps/0.7.9 (strict AI and breaking-news RSS monitor)",
         }
 
     def get_latest_news(self, limit=10):
@@ -180,6 +180,7 @@ class RSSProvider:
             f"Reuters-only verification is {reuters_mode}. "
             f"Major-source mode is {major_mode}: Reuters/AP/NPR/CNBC/BBC are used as core feeds. "
             f"Yahoo Finance direct feed is {yahoo_mode}; it stays OFF by default to avoid stock-pick and stock-price-page noise. "
+            f"AI search is strict for OpenAI/ChatGPT/artificial intelligence/Nvidia/AMD/semiconductor/GPU/data-center terms. "
             f"Search lookback is {self.lookback}; this is a search window, not a delay."
         )
 
