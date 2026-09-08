@@ -12,10 +12,12 @@ from providers.rss_provider import RSSProvider
 class NewsEngine:
     """Turns headlines into MarketOps news cards.
 
-    Routing rules:
-    - Sports/entertainment noise is blocked before category hints are used.
-    - AI channel is strict: company names alone do not count as AI.
-    - General/major news is allowed when it can affect markets, sectors, or companies.
+    Plain English:
+    - #breaking-news is strict now. It is for urgent/macro/market-wide items.
+    - Routine finance articles, price pages, stock-pick articles, and generic "latest news"
+      items are ignored instead of being pushed as breaking news.
+    - General major news still routes to #general-news.
+    - AI needs real AI/chip/GPU/data-center context.
     """
 
     AI_PURE_KEYWORDS = [
@@ -31,6 +33,7 @@ class NewsEngine:
         "nvidia", "nvda", "amd", "microsoft", "msft", "amazon", "amzn",
         "apple", "aapl", "google", "googl", "alphabet", "meta",
         "oracle", "orcl", "broadcom", "avgo", "tsmc", "arm",
+        "micron", "mu", "sk hynix", "super micro", "smci",
     ]
 
     AI_CONTEXT_KEYWORDS = [
@@ -38,6 +41,7 @@ class NewsEngine:
         "semiconductor", "semiconductors", "gpu", "gpus", "data center",
         "data centers", "data centre", "data centres", "cloud ai", "openai",
         "chatgpt", "model training", "inference", "blackwell", "h100",
+        "memory chips", "compute stack",
     ]
 
     FED_RATES_KEYWORDS = [
@@ -46,7 +50,8 @@ class NewsEngine:
         "inflation", "cpi", "ppi", "pce", "jobs report", "payroll",
         "payrolls", "gdp", "unemployment", "jobless claims",
         "consumer prices", "producer prices", "bond yields",
-        "treasury yields", "fomc", "monetary policy",
+        "treasury yields", "fomc", "monetary policy", "yen intervention",
+        "foreign reserves",
     ]
 
     GEO_STRONG_KEYWORDS = [
@@ -56,6 +61,7 @@ class NewsEngine:
         "nato", "war", "sanctions", "missile", "attack", "ceasefire",
         "tariff", "tariffs", "trade war", "export controls", "china",
         "beijing", "south china sea", "red sea", "shipping lane",
+        "venezuela", "greenland", "bombardier",
     ]
 
     CHINA_CONTEXT_KEYWORDS = [
@@ -70,22 +76,41 @@ class NewsEngine:
         "ether etf", "crypto etf",
     ]
 
+    # Strict: this is the trigger set for #breaking-news.
+    # Do not put loose words like "stocks", "shares", "investors", or "markets" here by themselves.
     BROAD_MARKET_KEYWORDS = [
-        "stocks", "stock futures", "shares", "wall street", "s&p", "s&p 500",
-        "nasdaq", "dow", "futures", "global markets", "investors",
-        "markets", "market wrap", "selloff", "sell-off", "rally",
-        "risk appetite", "risk assets", "bond market", "dollar", "gold",
-        "oil prices",
+        "stock futures", "s&p futures", "nasdaq futures", "dow futures",
+        "wall street", "s&p 500", "nasdaq composite", "dow jones",
+        "stock market today", "global markets", "market selloff", "selloff",
+        "sell-off", "market rally", "market rout", "risk appetite",
+        "risk assets", "bond market", "treasury yields", "dollar index",
+        "oil prices", "gold prices", "market wrap", "pre-market", "premarket",
+        "after hours", "after-hours",
+    ]
+
+    BREAKING_EVENT_KEYWORDS = [
+        "breaking", "urgent", "alert", "surges", "plunges", "tumbles",
+        "sinks", "slides", "jumps", "spikes", "halts trading", "trading halt",
+        "bank failure", "bankruptcy", "default", "downgrade", "credit stress",
+        "shutdown", "government shutdown", "strike", "walkout", "layoff",
+        "layoffs", "job cuts", "plant shutdown", "factory shutdown",
+        "cyberattack", "ransomware", "data breach", "outage", "power outage",
+        "recall", "probe", "investigation", "charges", "indictment",
+        "lawsuit", "antitrust", "doj", "ftc", "sec", "fda", "tariff",
+        "tariffs", "sanctions", "export controls", "missile", "attack",
+        "war", "ceasefire", "opec", "oil deal", "earnings warning",
+        "cuts outlook", "raises outlook", "guidance", "merger", "acquisition",
+        "buyout", "deal", "contract", "defense contract",
     ]
 
     GENERAL_NEWS_KEYWORDS = [
         "white house", "congress", "senate", "house votes", "supreme court",
-        "court", "judge", "lawsuit", "president", "administration",
+        "court", "judge", "lawsuit", "president", "administration", "trump",
         "government shutdown", "national emergency", "cyberattack",
         "cyber attack", "ransomware", "data breach", "election", "vote",
-        "immigration", "border", "protest", "strike", "hurricane",
-        "wildfire", "earthquake", "public health", "fema", "national guard",
-        "boeing", "runway", "aircraft", "airport", "amazon prime air",
+        "immigration", "border", "protest", "strike", "layoff", "layoffs",
+        "job cuts", "hurricane", "wildfire", "earthquake", "public health",
+        "fema", "national guard", "boeing", "runway", "aircraft", "airport",
         "antitrust", "anti-trust", "regulation", "regulator", "doj",
         "department of justice", "ftc", "sec", "fda", "recall", "probe",
         "investigation", "indictment", "charges", "settlement", "fine",
@@ -95,6 +120,7 @@ class NewsEngine:
         "plant", "shutdown", "outage", "power outage", "grid",
         "pentagon", "defense contract", "contract award", "medicaid",
         "medicare", "visa", "tariff", "tariffs", "trade", "sanctions",
+        "aerospace", "autos", "ev", "electric vehicle", "semiconductor",
     ]
 
     COMPANY_GENERAL_KEYWORDS = [
@@ -103,7 +129,9 @@ class NewsEngine:
         "target", "costco", "lockheed", "lmt", "rtx", "exxon", "xom",
         "chevron", "cvx", "tyson", "tsn", "disney", "dis", "netflix",
         "nflx", "comcast", "cmcsa", "paramount", "wbd", "warner bros",
-        "nike", "nke", "adidas",
+        "nike", "nke", "adidas", "pepsico", "pfizer", "micron", "uber",
+        "chewy", "alibaba", "coupang", "hyundai", "audi", "jaguar land rover",
+        "bombardier", "spacex", "lululemon", "lulu", "mondel", "mondelez",
     ]
 
     SPORTS_NOISE_KEYWORDS = [
@@ -117,13 +145,15 @@ class NewsEngine:
         "playoffs", "finals", "tournament", "match", "game recap",
         "quarterback", "touchdown", "home run", "pitcher", "goalkeeper",
         "us open", "grand slam", "draft pick", "free agent", "trade deadline",
+        "lebron", "polymarket partnership",
     ]
 
     ENTERTAINMENT_NOISE_KEYWORDS = [
         "celebrity", "movie", "film", "box office", "actor", "actress",
         "music", "album", "song", "concert", "tour", "festival", "fashion",
         "recipe", "tv show", "trailer", "grammy", "grammys", "emmy", "emmys",
-        "oscars", "hollywood", "red carpet", "streaming series",
+        "oscars", "hollywood", "red carpet", "streaming series", "k-pop",
+        "bts", "one-man show",
     ]
 
     SPORTS_ENTERTAINMENT_KEEP_KEYWORDS = [
@@ -134,17 +164,61 @@ class NewsEngine:
         "sponsorship", "sponsor", "contract", "cyberattack", "data breach",
     ]
 
+    LOW_VALUE_TITLE_PATTERNS = [
+        r"^latest news$",
+        r"^news$",
+        r"check out .+ stock price",
+        r"stock price .* real time",
+        r"\| stock price & latest news",
+        r"\bwhich .+ stock is a better buy\b",
+        r"\bwhich .+ is a better buy\b",
+        r"\bbuy and hold\b",
+        r"\bbuy right now\b",
+        r"\bstocks? to buy\b",
+        r"\btop stocks?\b",
+        r"\bprice target\b",
+        r"\braising my target\b",
+        r"\bwhat does this mean for investors\b",
+        r"\bwhat would it take\b",
+        r"\bwhat's wrong with\b",
+        r"\bhow much would you need\b",
+        r"\bcollect \$?\d+.*month\b",
+        r"\bopen enrollment\b",
+        r"\bmedigap\b",
+        r"\bcathie wood buys\b",
+        r"\bdirector .* buys\b",
+        r"\bcfo .* holdings\b",
+        r"\breduces holdings\b",
+        r"\bdividend\b",
+        r"\bone unstoppable\b",
+        r"\bmagnificent .* stock\b",
+        r"\bonce-in-a-decade opportunity\b",
+        r"\bwatchlist\b",
+        r"\bretired at 40\b",
+        r"\be-cigarette addiction\b",
+    ]
+
+    LOW_VALUE_SOURCES = [
+        "motley fool", "24/7 wall st", "247 wall st", "insider monkey",
+        "thestreet", "moneywise", "international accounting bulletin",
+        "the accountant", "retail insight network", "packaging gateway",
+        "just food", "just style", "life insurance international",
+        "cre daily", "gurufocus", "zacks", "benzinga", "seeking alpha",
+        "investorplace", "simply wall st", "yahoo finance",
+    ]
+
     IRRELEVANT_KEYWORDS = [
         "horoscope", "crossword", "wordle", "recipe", "celebrity baby",
         "fashion week", "dating", "relationship advice",
     ]
 
     OVERRIDE_KEEP_KEYWORDS = [
-        "stocks", "shares", "stock futures", "oil", "crude", "fed",
-        "inflation", "rate", "rates", "yield", "treasury", "war", "attack",
-        "sanctions", "tariff", "tariffs", "ceasefire", "missile",
+        "stock futures", "s&p 500", "nasdaq futures", "oil", "crude", "fed",
+        "inflation", "rate cut", "rate hike", "yield", "treasury", "war",
+        "attack", "sanctions", "tariff", "tariffs", "ceasefire", "missile",
         "cyberattack", "cyber attack", "strike", "lawsuit", "regulation",
-        "antitrust", "supply chain", "bank", "banking",
+        "antitrust", "supply chain", "bank failure", "bankruptcy",
+        "earnings warning", "cuts outlook", "job cuts", "layoffs",
     ]
 
     MAJOR_GENERAL_BOOST_KEYWORDS = [
@@ -152,6 +226,7 @@ class NewsEngine:
         "tariffs", "sanctions", "cyberattack", "ransomware", "data breach",
         "strike", "shutdown", "supply chain", "antitrust", "doj", "ftc",
         "sec", "recall", "bank failure", "defense contract", "oil",
+        "layoffs", "job cuts", "cuts outlook",
     ]
 
     CATEGORY_ALIASES = {
@@ -225,7 +300,7 @@ class NewsEngine:
         self.last_provider_used = "Not checked yet"
 
     def get_top_news(self, limit=5, category="all"):
-        raw_items = self._get_raw_items(limit=60, category=category)
+        raw_items = self._get_raw_items(limit=140, category=category)
         classified_items = self._classify_items(raw_items)
         classified_items = [item for item in classified_items if self._is_fresh(item)]
 
@@ -246,7 +321,7 @@ class NewsEngine:
         }
 
     def get_channel_reports(self, limit_per_channel=3):
-        raw_items = self._get_raw_items(limit=100, category="all")
+        raw_items = self._get_raw_items(limit=180, category="all")
         classified_items = self._classify_items(raw_items)
         classified_items = [item for item in classified_items if self._is_fresh(item)]
         classified_items.sort(key=lambda item: item["importance_score"], reverse=True)
@@ -272,17 +347,21 @@ class NewsEngine:
     def source_policy(self):
         parts = []
         if self.marketaux_provider.enabled:
-            parts.append("Marketaux mode is ON. MarketOps checks Marketaux first for free market-news API coverage.")
+            parts.append("Marketaux mode is ON. MarketOps checks Marketaux first for market-news API coverage.")
             parts.append(self.marketaux_provider.source_policy())
         else:
             parts.append("Marketaux is OFF because MARKETAUX_API_KEY is missing or disabled.")
         if self.fallback_to_rss:
             parts.append("Reuters RSS/search is ON.")
-            parts.append("Major-source RSS/search is ON by default for AP, NPR, CNBC, BBC, and Yahoo Finance as second data points.")
+            parts.append("Major-source RSS/search is ON for AP, NPR, CNBC, BBC, and selected finance sources.")
             parts.append(self.rss_provider.source_policy())
         if self.include_reddit:
             parts.append("Reddit RSS monitor is ON and routes chatter to #reddit-hot only.")
-        parts.append("Sports/entertainment filtering is ON. AI routing requires actual AI/chip/data-center context.")
+        parts.append(
+            "#breaking-news is strict: only market-wide/urgent macro, Fed, war/oil, sanctions, "
+            "tariffs, cyberattacks, major layoffs, bank stress, trading halts, or major company-impact events. "
+            "Stock-pick articles, stock-price pages, generic latest-news pages, and routine finance filler are blocked."
+        )
         return " ".join(parts)
 
     def freshness_policy(self):
@@ -295,8 +374,8 @@ class NewsEngine:
         return (
             "Use one of these:\n"
             "• `!news` — all MarketOps news\n"
-            "• `!news market` — market-moving / broad market\n"
-            "• `!news general` — important national/world news that can affect markets or companies\n"
+            "• `!news market` — strict market-moving / breaking-news only\n"
+            "• `!news general` — important national/world/company news\n"
             "• `!news ai` — real AI / chips / data-center news only\n"
             "• `!news fed` — Fed / rates / inflation\n"
             "• `!news geo` — oil / geopolitics\n"
@@ -370,21 +449,10 @@ class NewsEngine:
             tags = ["🧵 Reddit Hot"]
             primary_tag = "🧵 Reddit Hot"
         else:
-            if self._should_ignore(routing_text):
+            if self._should_ignore(routing_text, source=source, title=title):
                 return None
 
-            tags = self._detect_tags(routing_text)
-
-            # Do not let generic "technology" feeds auto-route into AI.
-            # AI needs actual AI/chip/data-center context, not just Amazon/Apple/Microsoft/etc.
-            if not tags and category_hint in self.CHANNEL_MAP:
-                if category_hint == "🤖 AI / Tech":
-                    if self._is_ai_tech(routing_text):
-                        tags.append("🤖 AI / Tech")
-                    elif self._matches_any(routing_text, self.COMPANY_GENERAL_KEYWORDS + self.GENERAL_NEWS_KEYWORDS):
-                        tags.append("🗞 General News")
-                else:
-                    tags.append(category_hint)
+            tags = self._detect_tags(routing_text, category_hint=category_hint)
 
             if not tags:
                 return None
@@ -399,9 +467,11 @@ class NewsEngine:
             score += 1
         if provider == "Reddit RSS":
             score = 1
-        if any(name in source.lower() for name in ("reuters", "ap", "associated press", "npr", "cnbc", "bbc", "yahoo finance")):
+        if any(name in source.lower() for name in ("reuters", "ap", "associated press", "npr", "cnbc", "bbc")):
             score += 1
         if self._matches_any(routing_text, self.MAJOR_GENERAL_BOOST_KEYWORDS):
+            score += 1
+        if channel == "breaking-news":
             score += 1
 
         published_dt = item.get("published_dt")
@@ -426,69 +496,145 @@ class NewsEngine:
             "provider": provider,
         }
 
-    def _detect_tags(self, title_text):
+    def _detect_tags(self, text, category_hint=None):
         tags = []
 
-        if self._matches_any(title_text, self.FED_RATES_KEYWORDS):
+        if self._matches_any(text, self.FED_RATES_KEYWORDS):
             tags.append("🏦 Fed / Rates")
 
-        if self._matches_any(title_text, self.GEO_STRONG_KEYWORDS) or self._china_market_context(title_text):
+        if self._matches_any(text, self.GEO_STRONG_KEYWORDS) or self._china_market_context(text):
             tags.append("🛢 Oil / Geopolitics")
 
-        if self._is_ai_tech(title_text):
+        if self._is_ai_tech(text):
             tags.append("🤖 AI / Tech")
 
-        if self._matches_any(title_text, self.CRYPTO_KEYWORDS):
+        if self._matches_any(text, self.CRYPTO_KEYWORDS):
             tags.append("₿ Crypto")
 
-        if self._matches_any(title_text, self.BROAD_MARKET_KEYWORDS):
+        if self._is_breaking_market(text):
             tags.append("📊 Broad Market")
 
-        if self._matches_any(title_text, self.GENERAL_NEWS_KEYWORDS):
+        if self._matches_any(text, self.GENERAL_NEWS_KEYWORDS):
             tags.append("🗞 General News")
 
-        if not tags and self._matches_any(title_text, self.COMPANY_GENERAL_KEYWORDS):
+        if not tags and self._matches_any(text, self.COMPANY_GENERAL_KEYWORDS):
             tags.append("🗞 General News")
+
+        # Feed hints are allowed, but Broad Market/AI hints must prove themselves.
+        if not tags and category_hint in self.CHANNEL_MAP:
+            if category_hint == "🤖 AI / Tech":
+                if self._is_ai_tech(text):
+                    tags.append("🤖 AI / Tech")
+            elif category_hint == "📊 Broad Market":
+                if self._is_breaking_market(text):
+                    tags.append("📊 Broad Market")
+                elif self._has_general_business_context(text):
+                    tags.append("🗞 General News")
+            else:
+                tags.append(category_hint)
 
         return self._dedupe_tags(tags)
 
-    def _is_ai_tech(self, title_text):
-        # Actual AI/chip/data-center words are enough.
-        if self._matches_any(title_text, self.AI_PURE_KEYWORDS):
+    def _is_breaking_market(self, text):
+        broad_market = self._matches_any(text, self.BROAD_MARKET_KEYWORDS)
+        major_event = self._matches_any(text, self.BREAKING_EVENT_KEYWORDS)
+        fed_or_geo = self._matches_any(text, self.FED_RATES_KEYWORDS) or self._matches_any(text, self.GEO_STRONG_KEYWORDS)
+
+        if broad_market and (major_event or fed_or_geo):
             return True
 
-        # Company names alone are NOT enough for #ai-news.
-        has_ai_company = self._matches_any(title_text, self.AI_COMPANIES)
-        has_ai_context = self._matches_any(title_text, self.AI_CONTEXT_KEYWORDS)
+        if self._matches_any(text, ["stock futures", "s&p futures", "nasdaq futures", "dow futures", "wall street"]):
+            return True
+
+        if major_event and (
+            self._matches_any(text, self.COMPANY_GENERAL_KEYWORDS)
+            or self._matches_any(text, self.GENERAL_NEWS_KEYWORDS)
+            or fed_or_geo
+        ):
+            return True
+
+        return False
+
+    def _is_ai_tech(self, text):
+        if self._matches_any(text, self.AI_PURE_KEYWORDS):
+            return True
+        has_ai_company = self._matches_any(text, self.AI_COMPANIES)
+        has_ai_context = self._matches_any(text, self.AI_CONTEXT_KEYWORDS)
         return has_ai_company and has_ai_context
 
-    def _should_ignore(self, title_text):
-        if self._sports_or_entertainment_noise(title_text):
+    def _should_ignore(self, text, source="", title=""):
+        if self._looks_like_ticker_only(title):
             return True
 
-        if not self._matches_any(title_text, self.IRRELEVANT_KEYWORDS):
+        if self._low_value_finance(text, source):
+            return True
+
+        if self._sports_or_entertainment_noise(text):
+            return True
+
+        if not self._matches_any(text, self.IRRELEVANT_KEYWORDS):
             return False
 
-        return not self._matches_any(title_text, self.OVERRIDE_KEEP_KEYWORDS)
+        return not self._matches_any(text, self.OVERRIDE_KEEP_KEYWORDS)
 
-    def _sports_or_entertainment_noise(self, title_text):
-        has_sports = self._matches_any(title_text, self.SPORTS_NOISE_KEYWORDS)
-        has_entertainment = self._matches_any(title_text, self.ENTERTAINMENT_NOISE_KEYWORDS)
+    def _low_value_finance(self, text, source=""):
+        source_text = self._normalize_text(source)
+        low_source = any(name in source_text for name in self.LOW_VALUE_SOURCES)
+        low_title = any(re.search(pattern, text) for pattern in self.LOW_VALUE_TITLE_PATTERNS)
+
+        if not low_source and not low_title:
+            return False
+
+        # Keep if it is actually high-impact, not just an opinion/stock-pick page.
+        return not self._has_high_impact_context(text)
+
+    def _has_high_impact_context(self, text):
+        return (
+            self._matches_any(text, self.FED_RATES_KEYWORDS)
+            or self._matches_any(text, self.GEO_STRONG_KEYWORDS)
+            or self._matches_any(text, self.MAJOR_GENERAL_BOOST_KEYWORDS)
+            or self._matches_any(text, ["earnings warning", "cuts outlook", "raises outlook", "bank failure", "trading halt"])
+            or self._is_ai_tech(text)
+        )
+
+    def _looks_like_ticker_only(self, title):
+        title = (title or "").strip()
+        if not title:
+            return True
+
+        if title.lower() in {"latest news", "news"}:
+            return True
+
+        # Examples that were hitting #breaking-news: PBAM.O, CENM.NS, IDACU.OQ.
+        if re.fullmatch(r"[A-Z0-9]{1,6}([.\-][A-Z0-9]{1,4}){1,2}", title):
+            return True
+
+        return False
+
+    def _has_general_business_context(self, text):
+        return (
+            self._matches_any(text, self.GENERAL_NEWS_KEYWORDS)
+            or self._matches_any(text, self.COMPANY_GENERAL_KEYWORDS)
+            or self._matches_any(text, self.BREAKING_EVENT_KEYWORDS)
+        )
+
+    def _sports_or_entertainment_noise(self, text):
+        has_sports = self._matches_any(text, self.SPORTS_NOISE_KEYWORDS)
+        has_entertainment = self._matches_any(text, self.ENTERTAINMENT_NOISE_KEYWORDS)
 
         if not has_sports and not has_entertainment:
             return False
 
-        # Keep rare sports/entertainment stories only when the headline is really business/market related.
-        has_business_context = self._matches_any(title_text, self.SPORTS_ENTERTAINMENT_KEEP_KEYWORDS)
-        has_company_context = self._matches_any(title_text, self.COMPANY_GENERAL_KEYWORDS)
-        has_market_context = self._matches_any(title_text, self.BROAD_MARKET_KEYWORDS)
+        has_business_context = self._matches_any(text, self.SPORTS_ENTERTAINMENT_KEEP_KEYWORDS)
+        has_company_context = self._matches_any(text, self.COMPANY_GENERAL_KEYWORDS)
+        has_market_context = self._is_breaking_market(text)
 
         return not (has_business_context and (has_company_context or has_market_context))
 
-    def _china_market_context(self, title_text):
-        if not self._keyword_match(title_text, "china") and not self._keyword_match(title_text, "beijing"):
+    def _china_market_context(self, text):
+        if not self._keyword_match(text, "china") and not self._keyword_match(text, "beijing"):
             return False
-        return self._matches_any(title_text, self.CHINA_CONTEXT_KEYWORDS)
+        return self._matches_any(text, self.CHINA_CONTEXT_KEYWORDS)
 
     def _is_fresh(self, item):
         age_minutes = item.get("age_minutes")
@@ -519,7 +665,9 @@ class NewsEngine:
         seen = set()
         deduped = []
         for item in items:
-            key = item.get("link") or item.get("title", "").lower()
+            title = self._clean_title_key(item.get("title", ""))
+            link = item.get("link", "")
+            key = title or link
             if key in seen:
                 continue
             seen.add(key)
@@ -540,6 +688,12 @@ class NewsEngine:
         text = (text or "").lower()
         text = re.sub(r"\s+", " ", text)
         return text.strip()
+
+    def _clean_title_key(self, title):
+        value = self._normalize_text(title)
+        value = re.sub(r"\s+-\s+(reuters|ap news|npr|cnbc|bbc|yahoo finance|reuters\.com|cnbc\.com)$", "", value)
+        value = re.sub(r"\s+", " ", value).strip()
+        return value
 
     def _importance(self, score):
         if score >= 4:
@@ -562,7 +716,7 @@ class NewsEngine:
         if "₿ Crypto" in tags:
             return "Crypto headlines may move Bitcoin even when the broader stock market is quiet."
         if "📊 Broad Market" in tags:
-            return "Broad market headlines can explain moves in S&P futures, Nasdaq futures, and VIX."
+            return "This belongs in breaking-news because it has market-wide or urgent impact."
         if "🗞 General News" in tags:
             return "Major U.S./world news can affect markets through policy, regulation, lawsuits, supply chains, labor, energy, or company risk."
         return "Watch market reaction before treating this as important."
