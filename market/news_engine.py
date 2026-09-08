@@ -13,20 +13,32 @@ class NewsEngine:
     """Turns headlines into MarketOps news cards.
 
     Plain English:
-    - #breaking-news is strict now. It is for urgent/macro/market-wide items.
-    - Routine finance articles, price pages, stock-pick articles, and generic "latest news"
-      items are ignored instead of being pushed as breaking news.
+    - #ai-news is strict now. It is for real AI, OpenAI, chips, GPU,
+      semiconductor, data-center, and AI-infrastructure stories only.
+    - #breaking-news is strict. It is for urgent/macro/market-wide items.
+    - Routine finance articles, price pages, stock-pick articles, generic
+      latest-news pages, sports, entertainment, and random world stories are
+      ignored instead of being pushed into the wrong channel.
     - General major news still routes to #general-news.
-    - AI needs real AI/chip/GPU/data-center context.
     """
 
     AI_PURE_KEYWORDS = [
-        "ai", "artificial intelligence", "generative ai", "openai", "chatgpt",
+        "artificial intelligence", "generative ai", "openai", "chatgpt",
         "machine learning", "deep learning", "large language model", "llm",
-        "semiconductor", "semiconductors", "chip", "chips", "gpu", "gpus",
-        "data center", "data centers", "data centre", "data centres",
-        "cloud ai", "ai model", "ai models", "ai training", "ai inference",
-        "groq", "nvidia h100", "nvidia blackwell", "blackwell",
+        "ai infrastructure", "ai demand", "ai model", "ai models",
+        "ai training", "ai inference", "ai safety", "ai behavior",
+        "ai firms", "ai firm", "ai stocks", "ai stock", "ai racks",
+        "on-device ai", "cloud ai", "agentic ai", "ai cybersecurity",
+        "ai chip", "ai chips", "nvidia h100", "nvidia blackwell",
+        "blackwell", "groq",
+    ]
+
+    AI_TECH_INFRA_KEYWORDS = [
+        "semiconductor", "semiconductors", "chipmaker", "chipmakers",
+        "memory chip", "memory chips", "gpu", "gpus", "data center",
+        "data centers", "data centre", "data centres", "compute stack",
+        "h100", "blackwell", "wafer", "wafers", "foundry", "foundries",
+        "chip fabrication", "fabs", "fabless", "lithography",
     ]
 
     AI_COMPANIES = [
@@ -34,14 +46,33 @@ class NewsEngine:
         "apple", "aapl", "google", "googl", "alphabet", "meta",
         "oracle", "orcl", "broadcom", "avgo", "tsmc", "arm",
         "micron", "mu", "sk hynix", "super micro", "smci",
+        "asml", "qualcomm", "qcom", "intel", "intc", "marvell", "mrvl",
     ]
 
     AI_CONTEXT_KEYWORDS = [
-        "ai", "artificial intelligence", "generative ai", "chip", "chips",
-        "semiconductor", "semiconductors", "gpu", "gpus", "data center",
-        "data centers", "data centre", "data centres", "cloud ai", "openai",
-        "chatgpt", "model training", "inference", "blackwell", "h100",
-        "memory chips", "compute stack",
+        "ai", "artificial intelligence", "generative ai", "semiconductor",
+        "semiconductors", "chip", "chips", "chipmaker", "gpu", "gpus",
+        "data center", "data centers", "data centre", "data centres",
+        "cloud ai", "openai", "chatgpt", "model training", "inference",
+        "blackwell", "h100", "memory chips", "compute stack",
+    ]
+
+    AI_BUSINESS_CONTEXT_KEYWORDS = [
+        "infrastructure", "demand", "racks", "servers", "server",
+        "cloud", "capex", "investment", "deal", "contract", "export controls",
+        "export control", "sanctions", "espionage", "supply chain", "shortage",
+        "manufacturing", "factory", "fab", "fabs", "foundry", "earnings",
+        "revenue", "profit", "guidance", "launch", "unveils", "develops",
+        "partnership", "security", "cybersecurity", "regulation", "regulator",
+    ]
+
+    AI_FALSE_POSITIVE_PATTERNS = [
+        r"\borange chips\b",
+        r"\bpotato chips\b",
+        r"\btortilla chips\b",
+        r"\bchips mural\b",
+        r"\bai posts?\b",
+        r"\bstream of ai posts?\b",
     ]
 
     FED_RATES_KEYWORDS = [
@@ -51,7 +82,7 @@ class NewsEngine:
         "payrolls", "gdp", "unemployment", "jobless claims",
         "consumer prices", "producer prices", "bond yields",
         "treasury yields", "fomc", "monetary policy", "yen intervention",
-        "foreign reserves",
+        "foreign reserves", "central bank", "real wages",
     ]
 
     GEO_STRONG_KEYWORDS = [
@@ -61,19 +92,21 @@ class NewsEngine:
         "nato", "war", "sanctions", "missile", "attack", "ceasefire",
         "tariff", "tariffs", "trade war", "export controls", "china",
         "beijing", "south china sea", "red sea", "shipping lane",
-        "venezuela", "greenland", "bombardier",
+        "venezuela", "greenland", "bombardier", "lng", "papua lng",
+        "cuba blockade", "blockade",
     ]
 
     CHINA_CONTEXT_KEYWORDS = [
         "tariff", "tariffs", "trade", "exports", "export controls", "sanctions",
         "taiwan", "military", "economy", "economic", "markets", "stocks",
         "shares", "chips", "semiconductor", "rare earth", "supply chain",
+        "state banks", "capital-raising", "capital raising",
     ]
 
     CRYPTO_KEYWORDS = [
         "bitcoin", "btc", "crypto", "cryptocurrency", "ethereum", "ether",
         "coinbase", "spot bitcoin etf", "bitcoin etf", "ethereum etf",
-        "ether etf", "crypto etf",
+        "ether etf", "crypto etf", "stablecoin", "stablecoins",
     ]
 
     # Strict: this is the trigger set for #breaking-news.
@@ -100,7 +133,8 @@ class NewsEngine:
         "tariffs", "sanctions", "export controls", "missile", "attack",
         "war", "ceasefire", "opec", "oil deal", "earnings warning",
         "cuts outlook", "raises outlook", "guidance", "merger", "acquisition",
-        "buyout", "deal", "contract", "defense contract",
+        "buyout", "deal", "contract", "defense contract", "crash",
+        "deadly", "fatal", "evacuation", "explosive devices",
     ]
 
     GENERAL_NEWS_KEYWORDS = [
@@ -111,16 +145,16 @@ class NewsEngine:
         "immigration", "border", "protest", "strike", "layoff", "layoffs",
         "job cuts", "hurricane", "wildfire", "earthquake", "public health",
         "fema", "national guard", "boeing", "runway", "aircraft", "airport",
-        "antitrust", "anti-trust", "regulation", "regulator", "doj",
-        "department of justice", "ftc", "sec", "fda", "recall", "probe",
-        "investigation", "indictment", "charges", "settlement", "fine",
-        "bank", "banking", "bank failure", "bankruptcy", "credit stress",
-        "debt ceiling", "budget", "federal budget", "supply chain",
-        "port", "ports", "rail", "railroad", "union", "labor", "factory",
-        "plant", "shutdown", "outage", "power outage", "grid",
-        "pentagon", "defense contract", "contract award", "medicaid",
-        "medicare", "visa", "tariff", "tariffs", "trade", "sanctions",
-        "aerospace", "autos", "ev", "electric vehicle", "semiconductor",
+        "plane crash", "cargo plane", "ntsb", "antitrust", "anti-trust",
+        "regulation", "regulator", "doj", "department of justice", "ftc",
+        "sec", "fda", "recall", "probe", "investigation", "indictment",
+        "charges", "settlement", "fine", "bank", "banking", "bank failure",
+        "bankruptcy", "credit stress", "debt ceiling", "budget", "federal budget",
+        "supply chain", "port", "ports", "rail", "railroad", "union", "labor",
+        "factory", "plant", "shutdown", "outage", "power outage", "grid",
+        "pentagon", "defense contract", "contract award", "medicaid", "medicare",
+        "visa", "tariff", "tariffs", "trade", "sanctions", "aerospace", "autos",
+        "ev", "electric vehicle", "semiconductor", "capital raising", "capital-raising",
     ]
 
     COMPANY_GENERAL_KEYWORDS = [
@@ -132,6 +166,7 @@ class NewsEngine:
         "nike", "nke", "adidas", "pepsico", "pfizer", "micron", "uber",
         "chewy", "alibaba", "coupang", "hyundai", "audi", "jaguar land rover",
         "bombardier", "spacex", "lululemon", "lulu", "mondel", "mondelez",
+        "airbus", "volkswagen", "santos", "singapore airlines",
     ]
 
     SPORTS_NOISE_KEYWORDS = [
@@ -145,7 +180,14 @@ class NewsEngine:
         "playoffs", "finals", "tournament", "match", "game recap",
         "quarterback", "touchdown", "home run", "pitcher", "goalkeeper",
         "us open", "grand slam", "draft pick", "free agent", "trade deadline",
-        "lebron", "polymarket partnership",
+        "lebron", "polymarket partnership", "rhp", "lhp", "qb", "wr", "dt",
+        "ol", "il", "coach", "defender", "striker", "keeper", "starter",
+        "twins", "tigers", "49ers", "rams", "mariners", "padres", "yankees",
+        "phillies", "braves", "mets", "marlins", "seahawks", "pats",
+        "patriots", "springboks", "usmnt", "tyson fury", "anthony joshua",
+        "oleksandr usyk", "bill belichick", "aaron judge", "aaron donald",
+        "puka nacua", "arch manning", "ohio state", "bryce underwood",
+        "ajax", "michigan coach", "unc", "big 12",
     ]
 
     ENTERTAINMENT_NOISE_KEYWORDS = [
@@ -153,7 +195,8 @@ class NewsEngine:
         "music", "album", "song", "concert", "tour", "festival", "fashion",
         "recipe", "tv show", "trailer", "grammy", "grammys", "emmy", "emmys",
         "oscars", "hollywood", "red carpet", "streaming series", "k-pop",
-        "bts", "one-man show",
+        "bts", "one-man show", "mural", "activism in her own words",
+        "party balloon",
     ]
 
     SPORTS_ENTERTAINMENT_KEEP_KEYWORDS = [
@@ -175,6 +218,7 @@ class NewsEngine:
         r"\bbuy and hold\b",
         r"\bbuy right now\b",
         r"\bstocks? to buy\b",
+        r"\bthese \d+ stocks\b",
         r"\btop stocks?\b",
         r"\bprice target\b",
         r"\braising my target\b",
@@ -204,7 +248,7 @@ class NewsEngine:
         "the accountant", "retail insight network", "packaging gateway",
         "just food", "just style", "life insurance international",
         "cre daily", "gurufocus", "zacks", "benzinga", "seeking alpha",
-        "investorplace", "simply wall st", "yahoo finance",
+        "investorplace", "simply wall st", "finance.yahoo", "yahoo finance",
     ]
 
     IRRELEVANT_KEYWORDS = [
@@ -219,6 +263,7 @@ class NewsEngine:
         "cyberattack", "cyber attack", "strike", "lawsuit", "regulation",
         "antitrust", "supply chain", "bank failure", "bankruptcy",
         "earnings warning", "cuts outlook", "job cuts", "layoffs",
+        "artificial intelligence", "openai", "nvidia", "semiconductor",
     ]
 
     MAJOR_GENERAL_BOOST_KEYWORDS = [
@@ -226,7 +271,7 @@ class NewsEngine:
         "tariffs", "sanctions", "cyberattack", "ransomware", "data breach",
         "strike", "shutdown", "supply chain", "antitrust", "doj", "ftc",
         "sec", "recall", "bank failure", "defense contract", "oil",
-        "layoffs", "job cuts", "cuts outlook",
+        "layoffs", "job cuts", "cuts outlook", "plane crash", "ntsb",
     ]
 
     CATEGORY_ALIASES = {
@@ -358,6 +403,11 @@ class NewsEngine:
         if self.include_reddit:
             parts.append("Reddit RSS monitor is ON and routes chatter to #reddit-hot only.")
         parts.append(
+            "#ai-news is strict: only real AI, OpenAI, chips, GPU, semiconductor, "
+            "data-center, AI infrastructure, AI cybersecurity, and AI company-impact headlines. "
+            "Sports, politics, fires, elections, crashes, generic latest-news pages, and random Reuters feed items are blocked."
+        )
+        parts.append(
             "#breaking-news is strict: only market-wide/urgent macro, Fed, war/oil, sanctions, "
             "tariffs, cyberattacks, major layoffs, bank stress, trading halts, or major company-impact events. "
             "Stock-pick articles, stock-price pages, generic latest-news pages, and routine finance filler are blocked."
@@ -376,7 +426,7 @@ class NewsEngine:
             "• `!news` — all MarketOps news\n"
             "• `!news market` — strict market-moving / breaking-news only\n"
             "• `!news general` — important national/world/company news\n"
-            "• `!news ai` — real AI / chips / data-center news only\n"
+            "• `!news ai` — real AI / chips / GPU / data-center news only\n"
             "• `!news fed` — Fed / rates / inflation\n"
             "• `!news geo` — oil / geopolitics\n"
             "• `!news crypto` — bitcoin / crypto\n"
@@ -439,11 +489,13 @@ class NewsEngine:
         title = item.get("title", "Untitled")
         summary = item.get("summary", "")
         source = item.get("source", "")
-        feed_name = item.get("feed_name", "")
         provider = item.get("provider", "RSS")
         category_hint = item.get("category_hint")
 
-        routing_text = self._normalize_text(f"{title} {summary} {source} {feed_name}")
+        # Important: do NOT include feed_name here. A feed called "Reuters AI / Tech"
+        # made every item look like AI, even sports/politics/weather. Classification
+        # must be based on the actual headline + summary + source only.
+        routing_text = self._normalize_text(f"{title} {summary} {source}")
 
         if provider == "Reddit RSS":
             tags = ["🧵 Reddit Hot"]
@@ -556,11 +608,39 @@ class NewsEngine:
         return False
 
     def _is_ai_tech(self, text):
+        if self._ai_false_positive(text):
+            return False
+
         if self._matches_any(text, self.AI_PURE_KEYWORDS):
             return True
+
         has_ai_company = self._matches_any(text, self.AI_COMPANIES)
         has_ai_context = self._matches_any(text, self.AI_CONTEXT_KEYWORDS)
-        return has_ai_company and has_ai_context
+        has_ai_infra = self._matches_any(text, self.AI_TECH_INFRA_KEYWORDS)
+        has_business_context = self._matches_any(text, self.AI_BUSINESS_CONTEXT_KEYWORDS)
+
+        if has_ai_company and has_ai_context:
+            return True
+
+        if has_ai_infra and (has_ai_company or has_business_context):
+            return True
+
+        return False
+
+    def _ai_false_positive(self, text):
+        if any(re.search(pattern, text) for pattern in self.AI_FALSE_POSITIVE_PATTERNS):
+            return True
+
+        # Sports/entertainment should not become AI just because an RSS feed or
+        # odd headline contains a loose tech word.
+        has_sports_or_entertainment = (
+            self._matches_any(text, self.SPORTS_NOISE_KEYWORDS)
+            or self._matches_any(text, self.ENTERTAINMENT_NOISE_KEYWORDS)
+        )
+        if has_sports_or_entertainment and not self._matches_any(text, self.SPORTS_ENTERTAINMENT_KEEP_KEYWORDS):
+            return True
+
+        return False
 
     def _should_ignore(self, text, source="", title=""):
         if self._looks_like_ticker_only(title):
@@ -585,16 +665,21 @@ class NewsEngine:
         if not low_source and not low_title:
             return False
 
-        # Keep if it is actually high-impact, not just an opinion/stock-pick page.
-        return not self._has_high_impact_context(text)
+        if low_title:
+            return not self._has_hard_news_context(text)
 
-    def _has_high_impact_context(self, text):
+        # Let real AI/company-impact news through even if it was surfaced by a finance aggregator.
+        if self._is_ai_tech(text):
+            return False
+
+        return not self._has_hard_news_context(text)
+
+    def _has_hard_news_context(self, text):
         return (
             self._matches_any(text, self.FED_RATES_KEYWORDS)
             or self._matches_any(text, self.GEO_STRONG_KEYWORDS)
             or self._matches_any(text, self.MAJOR_GENERAL_BOOST_KEYWORDS)
             or self._matches_any(text, ["earnings warning", "cuts outlook", "raises outlook", "bank failure", "trading halt"])
-            or self._is_ai_tech(text)
         )
 
     def _looks_like_ticker_only(self, title):
@@ -605,7 +690,7 @@ class NewsEngine:
         if title.lower() in {"latest news", "news"}:
             return True
 
-        # Examples that were hitting #breaking-news: PBAM.O, CENM.NS, IDACU.OQ.
+        # Examples that were hitting #breaking-news/#ai-news: PBAM.O, CENM.NS, IDACU.OQ.
         if re.fullmatch(r"[A-Z0-9]{1,6}([.\-][A-Z0-9]{1,4}){1,2}", title):
             return True
 
