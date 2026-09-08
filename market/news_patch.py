@@ -1,12 +1,12 @@
 """Strict routing patch for MarketOps news.
 
-This keeps one primary topic channel per story, uses #breaking-news as an
-urgency layer, and rejects common feed noise that previously leaked into AI,
-Fed, crypto, and general news.
+One primary topic channel per story. #breaking-news is reserved for truly
+urgent or market-wide events. Duplicate copies of the same headline from
+multiple RSS sources are collapsed.
 """
 
+import re
 from market.news_engine import NewsEngine
-
 
 FED_STRONG = [
     "federal reserve", "fomc", "fed chair", "fed governor", "powell",
@@ -75,8 +75,8 @@ BREAKING_SEVERE = [
     "trading halt", "halts trading", "bank failure", "default",
     "government shutdown", "major cyberattack", "ransomware attack",
     "missile attack", "military strike", "airstrike", "air strike",
-    "invasion", "ceasefire", "opec", "oil supply", "sanctions",
-    "tariff", "tariffs", "factory shutdown", "plant shutdown",
+    "invasion", "major escalation", "opec emergency", "oil supply disruption",
+    "strait of hormuz closed", "blockade", "factory shutdown", "plant shutdown",
     "earnings warning", "cuts outlook", "bankruptcy", "deadly crash",
 ]
 
@@ -87,7 +87,8 @@ GENERIC_TITLES = {
 
 LOCAL_NOISE = [
     "road closed after crash", "closed after crash", "stabbing",
-    "pre-loved uniforms", "charity", "school year starts",
+    "pre-loved uniforms", "charity", "school year starts", "parking charges",
+    "bridge repair", "repair work begins", "comic hobby", "mastermind subject",
 ]
 
 
@@ -137,11 +138,9 @@ def _topic_scores(self, text):
 def strict_detect_tags(self, text, category_hint=None):
     scores = _topic_scores(self, text)
     best_score = max(scores.values())
-
     if best_score <= 0:
         return []
 
-    # Deterministic tie order: explicit specialist channels beat General.
     order = [
         "🏦 Fed / Rates",
         "🛢 Oil / Geopolitics",
@@ -151,16 +150,12 @@ def strict_detect_tags(self, text, category_hint=None):
     ]
     primary = next(tag for tag in order if scores[tag] == best_score)
     tags = [primary]
-
     if strict_is_breaking_market(self, text):
         tags.append("📊 Broad Market")
-
     return tags
 
 
 def strict_primary_tag(self, tags):
-    # Broad Market is an urgency flag when a real topic exists, not a reason to
-    # steal the story from its proper channel.
     for tag in [
         "🏦 Fed / Rates",
         "🛢 Oil / Geopolitics",
@@ -177,9 +172,12 @@ def strict_primary_tag(self, tags):
 
 
 def strict_is_breaking_market(self, text):
+    # Market-wide moves are breaking by definition.
     if _has(self, text, MARKET_WIDE):
         return True
 
+    # A normal sanctions/tariff/geopolitical story is NOT automatically breaking.
+    # It needs explicit severity/escalation language too.
     severe = _has(self, text, BREAKING_SEVERE)
     consequential = (
         _has(self, text, FED_STRONG)
@@ -195,7 +193,6 @@ def strict_should_ignore(self, text, source="", title=""):
     normalized_title = self._normalize_text(title)
     if normalized_title in GENERIC_TITLES:
         return True
-
     if self._looks_like_ticker_only(title):
         return True
     if self._low_value_finance(text, source):
@@ -203,8 +200,6 @@ def strict_should_ignore(self, text, source="", title=""):
     if self._sports_or_entertainment_noise(text):
         return True
 
-    # Reject local/human-interest filler unless it has a real specialist or
-    # market/company context.
     if _has(self, text, LOCAL_NOISE):
         scores = _topic_scores(self, text)
         if max(scores.values()) < 5:
@@ -213,12 +208,18 @@ def strict_should_ignore(self, text, source="", title=""):
     if _has(self, text, self.IRRELEVANT_KEYWORDS) and not _has(self, text, self.OVERRIDE_KEEP_KEYWORDS):
         return True
 
-    # If none of the strict topic rules can explain why we want the story,
-    # drop it instead of forcing it into General.
     if max(_topic_scores(self, text).values()) <= 0 and not strict_is_breaking_market(self, text):
         return True
-
     return False
+
+
+def strict_clean_title_key(self, title):
+    value = self._normalize_text(title)
+    # Collapse source suffixes and punctuation so BBC / bbc.com / Reuters copies
+    # of the same headline become one story.
+    value = re.sub(r"\s+-\s+(reuters|reuters\.com|bbc|bbc\.com|cnbc|cnbc\.com|ap|ap news|npr|yahoo finance|finance\.yahoo\.com)$", "", value)
+    value = re.sub(r"[^a-z0-9]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
 
 
 def strict_get_channel_reports(self, limit_per_channel=3):
@@ -233,7 +234,7 @@ def strict_get_channel_reports(self, limit_per_channel=3):
     def add(channel, item):
         if channel not in reports or len(reports[channel]) >= limit_per_channel:
             return
-        key = self._clean_title_key(item.get("title", "")) or item.get("link", "")
+        key = strict_clean_title_key(self, item.get("title", "")) or item.get("link", "")
         if not key or key in seen_by_channel[channel]:
             return
         reports[channel].append(item)
@@ -241,9 +242,6 @@ def strict_get_channel_reports(self, limit_per_channel=3):
 
     for item in classified_items:
         add(item["channel"], item)
-
-        # Breaking is a second layer only for truly urgent stories. The story
-        # still remains in its correct topical channel.
         if "📊 Broad Market" in item.get("tags", []) and item["channel"] != "breaking-news":
             add("breaking-news", item)
 
@@ -262,4 +260,5 @@ def apply_news_routing_patch():
     NewsEngine._primary_tag = strict_primary_tag
     NewsEngine._is_breaking_market = strict_is_breaking_market
     NewsEngine._should_ignore = strict_should_ignore
+    NewsEngine._clean_title_key = strict_clean_title_key
     NewsEngine.get_channel_reports = strict_get_channel_reports
