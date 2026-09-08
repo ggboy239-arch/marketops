@@ -1,3 +1,4 @@
+import hashlib
 import json
 import math
 import os
@@ -14,9 +15,11 @@ class WatchlistEngine:
     """Checks watchlist prices/news and manages user settings.
 
     Plain English: this is the watchlist brain. Discord commands call this file.
-    This file checks quotes, checks headlines, grades headline quality, saves the
-    watchlist, and saves alert settings.
+    Price data comes from the free yfinance/Yahoo Finance path, so MarketOps now
+    shows data health and skips stale price alerts by default.
     """
+
+    DATA_PROVIDER_LABEL = "Yahoo Finance via yfinance"
 
     DEFAULT_SYMBOLS = [
         "NVDA", "AMD", "TSN", "RTX", "LMT", "XOM", "CVX", "SPY", "QQQ", "BTC-USD",
@@ -102,6 +105,7 @@ class WatchlistEngine:
         self.enabled = self._setting_bool("enabled", "WATCHLIST_ENABLED", True)
         self.news_enabled = self._setting_bool("news_enabled", "WATCHLIST_NEWS_ALERTS", True)
         self.rss_news_fallback = self._env_bool("WATCHLIST_NEWS_RSS_FALLBACK", default=True)
+        self.skip_stale_price_alerts = self._env_bool("WATCHLIST_SKIP_STALE_PRICE_ALERTS", default=True)
         self.symbols = self._load_symbols()
         self.move_threshold = self._setting_float("move_threshold", "WATCHLIST_MOVE_ALERT_PERCENT", 3.0)
         self.news_max_items = int(os.getenv("WATCHLIST_NEWS_MAX_ITEMS", "15"))
@@ -110,9 +114,12 @@ class WatchlistEngine:
 
     def get_watchlist_report(self):
         quotes = []
+        health_counts = {"fresh": 0, "closed": 0, "stale": 0, "unavailable": 0}
         for symbol in self.symbols:
             quote = self._quote(symbol)
-            quotes.append(self._format_quote(quote))
+            formatted = self._format_quote(quote)
+            quotes.append(formatted)
+            health_counts[formatted["health_key"]] = health_counts.get(formatted["health_key"], 0) + 1
 
         return {
             "enabled": self.enabled,
@@ -120,8 +127,39 @@ class WatchlistEngine:
             "quotes": quotes,
             "move_threshold": self.move_threshold,
             "news_enabled": self.news_enabled,
+            "skip_stale_price_alerts": self.skip_stale_price_alerts,
+            "data_provider": self.DATA_PROVIDER_LABEL,
+            "health_counts": health_counts,
             "storage": str(self.symbol_store_path),
             "updated": self._timestamp(),
+        }
+
+    def get_price_health_report(self, symbol=None):
+        if symbol:
+            symbols = [self._normalize_symbol(symbol)]
+        else:
+            symbols = list(self.symbols)
+
+        checks = []
+        summary = {"fresh": 0, "closed": 0, "stale": 0, "unavailable": 0}
+        for item in symbols:
+            if not item:
+                continue
+            quote = self._quote(item)
+            check = self._format_quote_health(quote)
+            checks.append(check)
+            summary[check["health_key"]] = summary.get(check["health_key"], 0) + 1
+
+        return {
+            "checks": checks,
+            "summary": summary,
+            "data_provider": self.DATA_PROVIDER_LABEL,
+            "skip_stale_price_alerts": self.skip_stale_price_alerts,
+            "updated": self._timestamp(),
+            "note": (
+                "Free quote data can lag or fall back to daily data. Use !watchtest to check health, "
+                "and use !chart or your broker before acting."
+            ),
         }
 
     def get_status(self, auto_enabled=True, channel_name="watchlist", poll_minutes=15):
@@ -134,6 +172,8 @@ class WatchlistEngine:
             "move_threshold": self.move_threshold,
             "symbols": self.symbols,
             "last_news_provider": self.last_news_provider,
+            "data_provider": self.DATA_PROVIDER_LABEL,
+            "skip_stale_price_alerts": self.skip_stale_price_alerts,
             "updated": self._timestamp(),
         }
 
@@ -194,6 +234,8 @@ class WatchlistEngine:
                 "enabled": False, "alerts": [], "updated": self._timestamp(),
                 "move_threshold": self.move_threshold, "news_enabled": self.news_enabled,
                 "news_provider": self.last_news_provider,
+                "data_provider": self.DATA_PROVIDER_LABEL,
+                "skip_stale_price_alerts": self.skip_stale_price_alerts,
             }
 
         alerts = []
@@ -207,6 +249,8 @@ class WatchlistEngine:
             "enabled": True, "alerts": alerts, "updated": self._timestamp(),
             "move_threshold": self.move_threshold, "news_enabled": self.news_enabled,
             "news_provider": self.last_news_provider,
+            "data_provider": self.DATA_PROVIDER_LABEL,
+            "skip_stale_price_alerts": self.skip_stale_price_alerts,
         }
 
     def _scan_price_alerts(self, force=False):
@@ -216,6 +260,8 @@ class WatchlistEngine:
             quote = self._quote(symbol)
             if quote.get("status") == "Unavailable":
                 continue
+            if self.skip_stale_price_alerts and quote.get("stale"):
+                continue
             change_percent = self._safe_float(quote.get("change_percent"))
             if abs(change_percent) < self.move_threshold:
                 continue
@@ -224,7 +270,13 @@ class WatchlistEngine:
                 continue
             alert = self._build_price_alert(symbol, quote, change_percent)
             alerts.append(alert)
-            self.alert_memory[alert_key] = {"type": "price", "symbol": symbol, "change_percent": change_percent, "created": self._timestamp()}
+            self.alert_memory[alert_key] = {
+                "type": "price",
+                "symbol": symbol,
+                "change_percent": change_percent,
+                "data_confidence": alert.get("data_confidence"),
+                "created": self._timestamp(),
+            }
         return alerts
 
     def _scan_news_alerts(self, force=False):
@@ -258,7 +310,7 @@ class WatchlistEngine:
             rss_items = self.rss_provider.get_latest_news(limit=self.news_max_items)
             if rss_items:
                 items.extend(rss_items)
-                used.append("Reuters RSS")
+                used.append("Trusted RSS")
         self.last_news_provider = " + ".join(used) if used else "No news provider returned items"
         return self._dedupe_news_items(items)
 
@@ -272,23 +324,69 @@ class WatchlistEngine:
         return matches
 
     def _quote(self, symbol):
-        kind = "crypto" if "BTC" in symbol.upper() or "ETH" in symbol.upper() else "money"
+        kind = self._quote_kind(symbol)
         return self.provider.get_quote(symbol=symbol, label=self.LABELS.get(symbol, symbol), kind=kind)
+
+    def _quote_kind(self, symbol):
+        upper = (symbol or "").upper()
+        if "BTC" in upper or "ETH" in upper:
+            return "crypto"
+        if upper.endswith("=F"):
+            return "futures_money"
+        if upper == "^TNX":
+            return "yield"
+        if upper.startswith("^") or upper in ("DX-Y.NYB", "DXY"):
+            return "number"
+        return "money"
 
     def _format_quote(self, quote):
         symbol = quote.get("symbol", "Unknown")
         label = quote.get("label", symbol)
         status = quote.get("status", "Unknown")
+        confidence = self._data_confidence(quote)
+        health_key = self._health_key(quote)
+
         if status == "Unavailable":
-            return {"symbol": symbol, "label": label, "status": status, "price": "Unavailable", "change_percent": 0, "line": f"{symbol} — unavailable right now"}
+            return {
+                "symbol": symbol,
+                "label": label,
+                "status": status,
+                "price": "Unavailable",
+                "change_percent": 0,
+                "health_key": health_key,
+                "confidence": confidence,
+                "line": f"⚪ **{symbol}** ({label}) — unavailable / Data: {confidence}",
+            }
+
         price = quote.get("price", 0)
         change_percent = self._safe_float(quote.get("change_percent"))
         direction = "🟢" if change_percent >= 0 else "🔴"
-        price_text = f"${price:,.0f}" if quote.get("kind") == "crypto" else f"${price:,.2f}"
+        price_text = self._price_text(price, quote.get("kind"))
         return {
-            "symbol": symbol, "label": label, "status": status, "price": price_text,
+            "symbol": symbol,
+            "label": label,
+            "status": status,
+            "price": price_text,
             "change_percent": change_percent,
-            "line": f"{direction} **{symbol}** ({label}) — {price_text} / {change_percent:+.2f}% / {status}",
+            "health_key": health_key,
+            "confidence": confidence,
+            "line": f"{direction} **{symbol}** ({label}) — {price_text} / {change_percent:+.2f}% / {status} / Data: {confidence}",
+        }
+
+    def _format_quote_health(self, quote):
+        formatted = self._format_quote(quote)
+        return {
+            "symbol": formatted["symbol"],
+            "label": formatted["label"],
+            "status": formatted["status"],
+            "price": formatted["price"],
+            "change_percent": formatted["change_percent"],
+            "health_key": formatted["health_key"],
+            "confidence": formatted["confidence"],
+            "stale": bool(quote.get("stale")),
+            "error": quote.get("error"),
+            "source": quote.get("source") or self.DATA_PROVIDER_LABEL,
+            "line": formatted["line"],
         }
 
     def _build_price_alert(self, symbol, quote, change_percent):
@@ -297,13 +395,15 @@ class WatchlistEngine:
         status = quote.get("status", "Unknown")
         direction = "up" if change_percent >= 0 else "down"
         emoji = "🟢" if change_percent >= 0 else "🔴"
-        price_text = f"${price:,.0f}" if quote.get("kind") == "crypto" else f"${price:,.2f}"
+        price_text = self._price_text(price, quote.get("kind"))
+        confidence = self._data_confidence(quote)
         return {
             "type": "price", "symbol": symbol, "label": label, "price": price_text,
             "change_percent": change_percent, "direction": direction, "status": status,
             "emoji": emoji, "quality_label": "Price Move",
-            "quality_reason": "Triggered by percent move threshold, not a headline source.",
-            "message": f"{emoji} **{symbol}** ({label}) is {direction} **{change_percent:+.2f}%** at **{price_text}**. Status: {status}.",
+            "quality_reason": "Triggered by percent move threshold. Confirm with chart/broker before acting.",
+            "data_confidence": confidence,
+            "message": f"{emoji} **{symbol}** ({label}) is {direction} **{change_percent:+.2f}%** at **{price_text}**. Status: {status}. Data: {confidence}.",
             "watch": self._watch_note(symbol, change_percent),
         }
 
@@ -338,6 +438,28 @@ class WatchlistEngine:
         if self._contains_any(title, self.ACTION_WORDS):
             return {"label": "Medium Trust", "emoji": "🟡", "score": 2, "reason": "Headline contains market-moving words, but source still needs confirmation."}
         return {"label": "Needs Confirmation", "emoji": "⚪", "score": 0, "reason": "Unknown source quality. Treat as a lead, not a trade signal."}
+
+    def _data_confidence(self, quote):
+        status = quote.get("status", "Unknown")
+        if status == "Unavailable":
+            return "No quote"
+        if quote.get("stale"):
+            return "Stale/daily fallback"
+        if status in ("Open", "Pre-Market", "After Hours", "Futures", "24/7"):
+            return "Fresh free quote"
+        if status == "Closed":
+            return "Last close"
+        return "Free quote"
+
+    def _health_key(self, quote):
+        status = quote.get("status", "Unknown")
+        if status == "Unavailable":
+            return "unavailable"
+        if quote.get("stale"):
+            return "stale"
+        if status == "Closed":
+            return "closed"
+        return "fresh"
 
     def _watch_note(self, symbol, change_percent):
         upper = symbol.upper()
@@ -414,7 +536,21 @@ class WatchlistEngine:
 
     def _normalize_symbol(self, symbol):
         clean = (symbol or "").strip().upper().replace("$", "").replace(" ", "")
-        aliases = {"BTCUSD": "BTC-USD", "BITCOIN": "BTC-USD", "ETHUSD": "ETH-USD", "ETHEREUM": "ETH-USD"}
+        aliases = {
+            "BTCUSD": "BTC-USD",
+            "BITCOIN": "BTC-USD",
+            "ETHUSD": "ETH-USD",
+            "ETHEREUM": "ETH-USD",
+            "GOLD": "GC=F",
+            "GC": "GC=F",
+            "OIL": "CL=F",
+            "WTI": "CL=F",
+            "ES": "ES=F",
+            "NQ": "NQ=F",
+            "VIX": "^VIX",
+            "US10Y": "^TNX",
+            "10Y": "^TNX",
+        }
         return aliases.get(clean, clean)
 
     def _load_settings(self):
@@ -467,6 +603,11 @@ class WatchlistEngine:
             return 0.0
         return result
 
+    def _price_text(self, price, kind):
+        if kind == "crypto":
+            return f"${price:,.0f}"
+        return f"${price:,.2f}"
+
     def _matches_any(self, text, terms):
         return any(self._term_match(text, term) for term in terms)
 
@@ -495,7 +636,7 @@ class WatchlistEngine:
 
     def _article_id(self, item):
         value = item.get("link") or item.get("title", "")
-        return str(abs(hash(value)))
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
     def _age_label(self, published_dt):
         if published_dt is None:
