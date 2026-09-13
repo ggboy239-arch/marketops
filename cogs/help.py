@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 
-VERSION = "MarketOps v2.9.5"
+VERSION = "MarketOps v2.9.6"
 
 
 class MarketOpsHelp(commands.Cog):
@@ -47,6 +47,20 @@ class MarketOpsHelp(commands.Cog):
                 "`!learn gold` — gold/safety lesson\n"
                 "`!learn news` — news vs price action lesson\n"
                 "`!playbook` — full MarketOps checklist"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="📚 Stock-Move Lessons",
+            value=(
+                "`!movelesson` — explain big drops/spikes from the watchlist → `#stock-move-lessons`\n"
+                "`!movelesson TSLA` — teach one ticker move\n"
+                "`!droplesson NVDA` — same command, focused on a drop\n"
+                "`!spikelesson AMD` — same command, focused on a big increase\n"
+                "`!movepost` — force-post current lessons to the lesson channel\n"
+                "`!movestatus` — show auto-post settings and last error\n"
+                "Framework: Identify → Translate economics → Confirm with chart/sector reaction"
             ),
             inline=False,
         )
@@ -157,7 +171,7 @@ class MarketOpsHelp(commands.Cog):
 
         embed.add_field(
             name="Best Flow",
-            value="`!pulse` → `!watchtest` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!videonews` → optional `!xnews` later if X token is added",
+            value="`!pulse` → `!watchtest` → `!movelesson` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!videonews`",
             inline=False,
         )
 
