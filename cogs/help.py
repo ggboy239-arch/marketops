@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 
-VERSION = "MarketOps v2.9.6"
+VERSION = "MarketOps v2.9.7"
 
 
 class MarketOpsHelp(commands.Cog):
@@ -61,6 +61,18 @@ class MarketOpsHelp(commands.Cog):
                 "`!movepost` — force-post current lessons to the lesson channel\n"
                 "`!movestatus` — show auto-post settings and last error\n"
                 "Framework: Identify → Translate economics → Confirm with chart/sector reaction"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🏛 Federal Power Monitor",
+            value=(
+                "`!power` — scan Congress.gov, Federal Register, and CourtListener → `#federal-power-briefs`\n"
+                "`!power post` — force-post current federal power briefs\n"
+                "`!power status` — show API/source status and last error\n"
+                "`!powerhelp` — show command help\n"
+                "Framework: Legislative + Executive + Judicial → JSON payload → economy lesson"
             ),
             inline=False,
         )
@@ -171,7 +183,7 @@ class MarketOpsHelp(commands.Cog):
 
         embed.add_field(
             name="Best Flow",
-            value="`!pulse` → `!watchtest` → `!movelesson` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!videonews`",
+            value="`!pulse` → `!watchtest` → `!power` → `!movelesson` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!videonews`",
             inline=False,
         )
 
