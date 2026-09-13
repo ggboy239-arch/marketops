@@ -78,6 +78,15 @@ PRIVATE_CHART_COMMANDS = ["mychart", "privatechart", "dmchart"]
 
 CANDLE_LEARNING_COMMANDS = ["candles", "candlehelp", "ohlc"]
 
+MOVE_LEARNING_COMMANDS = [
+    "movelesson", "stockmove", "movelearn",
+    "droplesson", "stockdrop", "dropwatch",
+    "spikelesson", "stockspike",
+    "movepost", "droppost", "spikepost",
+    "movestatus", "dropstatus", "spikestatus",
+    "movehelp", "drophelp", "spikehelp",
+]
+
 SOCIAL_STATUS_COMMANDS = ["social", "socialstatus", "xstatus"]
 X_NEWS_COMMANDS = ["xnews", "xposts", "twitternews"]
 VIDEO_NEWS_COMMANDS = ["videonews", "videos", "newsvideos"]
@@ -103,6 +112,7 @@ COMMAND_CHANNELS = {
     **{command: ["market-charts"] for command in PUBLIC_CHART_COMMANDS},
     **{command: ["market-charts", "watchlist"] for command in PRIVATE_CHART_COMMANDS},
     **{command: ["market-school", "market-charts"] for command in CANDLE_LEARNING_COMMANDS},
+    **{command: ["stock-move-lessons", "watchlist", "market-school", "owner-audit"] for command in MOVE_LEARNING_COMMANDS},
     **{command: ["x-news", "video-news", "trending-news"] for command in SOCIAL_STATUS_COMMANDS},
     **{command: ["x-news"] for command in X_NEWS_COMMANDS},
     **{command: ["video-news"] for command in VIDEO_NEWS_COMMANDS},
@@ -125,22 +135,11 @@ COMMAND_CHANNELS = {
 
 
 def _clean_channel_name(channel_name):
-    """Make emoji channel names match normal bot rules.
-
-    Examples:
-    🔑 | redeem-access -> redeem-access
-    🔒-owner-audit -> owner-audit
-    🗓-market-calendar -> market-calendar
-    📈-market-charts -> market-charts
-    𝕏-x-news -> x-news
-    🎥 | video-news -> video-news
-    marketops-commands -> marketops-commands
-    """
+    """Make emoji channel names match normal bot rules."""
     cleaned = (channel_name or "").strip().lower()
     for separator in ("|", "┃", "│"):
         if separator in cleaned:
             cleaned = cleaned.split(separator)[-1].strip()
-    # Also handle emoji-prefix channels that use a dash, like 🔒-owner-audit.
     while cleaned and not cleaned[0].isalnum():
         cleaned = cleaned[1:].strip()
     return cleaned.replace(" ", "-")
@@ -169,7 +168,6 @@ async def command_channel_check(ctx):
     if command_name in HELP_COMMANDS or invoked_name in HELP_COMMANDS:
         return True
 
-    # Ticket close must work inside created private ticket channels too.
     current_channel = getattr(ctx.channel, "name", "")
     cleaned_current_channel = _clean_channel_name(current_channel)
     if invoked_name in {"closeticket", "close"} and cleaned_current_channel.startswith(("buy-", "renew-", "bug-", "support-", "ticket-")):
@@ -202,10 +200,6 @@ async def on_command_error(ctx, error):
     raise error
 
 
-# --------------------
-# When Bot Starts
-# --------------------
-
 @bot.event
 async def on_ready():
     print("=" * 50)
@@ -219,10 +213,6 @@ async def on_ready():
         print(f"❌ Slash command sync error: {error}")
 
 
-# --------------------
-# Load Cogs
-# --------------------
-
 async def load():
     await bot.load_extension("cogs.ping")
     await bot.load_extension("cogs.market")
@@ -234,6 +224,7 @@ async def load():
     await bot.load_extension("cogs.brief")
     await bot.load_extension("cogs.policy")
     await bot.load_extension("cogs.watchlist")
+    await bot.load_extension("cogs.move_learning")
     await bot.load_extension("cogs.learn")
     await bot.load_extension("cogs.help")
     await bot.load_extension("cogs.status")
@@ -243,10 +234,6 @@ async def load():
     await bot.load_extension("cogs.logs")
     await bot.load_extension("cogs.calendar")
 
-
-# --------------------
-# Main
-# --------------------
 
 async def main():
     async with bot:
