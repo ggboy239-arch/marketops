@@ -94,6 +94,13 @@ GOV_POWER_COMMANDS = [
     "powerhelp", "govhelp", "branchhelp",
 ]
 
+MARKET_CHANGE_COMMANDS = [
+    "why", "whymarket", "marketwhy", "marketchange", "changewatch", "explainmarket",
+    "whypost", "marketwhypost", "changepost",
+    "whystatus", "marketwhystatus", "changestatus",
+    "whyhelp", "marketwhyhelp", "changehelp",
+]
+
 SOCIAL_STATUS_COMMANDS = ["social", "socialstatus", "xstatus"]
 X_NEWS_COMMANDS = ["xnews", "xposts", "twitternews"]
 VIDEO_NEWS_COMMANDS = ["videonews", "videos", "newsvideos"]
@@ -121,6 +128,7 @@ COMMAND_CHANNELS = {
     **{command: ["market-school", "market-charts"] for command in CANDLE_LEARNING_COMMANDS},
     **{command: ["stock-move-lessons", "watchlist", "market-school", "owner-audit"] for command in MOVE_LEARNING_COMMANDS},
     **{command: ["federal-power-briefs", "owner-audit", "market-school"] for command in GOV_POWER_COMMANDS},
+    **{command: ["market-change-explainers", "market-dashboard", "market-school", "owner-audit"] for command in MARKET_CHANGE_COMMANDS},
     **{command: ["x-news", "video-news", "trending-news"] for command in SOCIAL_STATUS_COMMANDS},
     **{command: ["x-news"] for command in X_NEWS_COMMANDS},
     **{command: ["video-news"] for command in VIDEO_NEWS_COMMANDS},
@@ -232,6 +240,7 @@ async def load():
     await bot.load_extension("cogs.brief")
     await bot.load_extension("cogs.policy")
     await bot.load_extension("cogs.government_power")
+    await bot.load_extension("cogs.market_changes")
     await bot.load_extension("cogs.watchlist")
     await bot.load_extension("cogs.move_learning")
     await bot.load_extension("cogs.learn")
