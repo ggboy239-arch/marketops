@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 
-VERSION = "MarketOps v2.9.7"
+VERSION = "MarketOps v2.9.8"
 
 
 class MarketOpsHelp(commands.Cog):
@@ -47,6 +47,18 @@ class MarketOpsHelp(commands.Cog):
                 "`!learn gold` — gold/safety lesson\n"
                 "`!learn news` — news vs price action lesson\n"
                 "`!playbook` — full MarketOps checklist"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🧠 Market Change Explainer",
+            value=(
+                "`!why` — explain what changed in the market → `#market-change-explainers`\n"
+                "`!why post` — force-post the current explainer\n"
+                "`!whystatus` — show auto-post settings and last error\n"
+                "`!whyhelp` — show command help\n"
+                "Framework: price move → possible drivers → economics → sectors → confirm next"
             ),
             inline=False,
         )
@@ -183,7 +195,7 @@ class MarketOpsHelp(commands.Cog):
 
         embed.add_field(
             name="Best Flow",
-            value="`!pulse` → `!watchtest` → `!power` → `!movelesson` → `!brief` → `!mychart SPY 1d` → `!mychart QQQ 1d` → `!news post` → `!videonews`",
+            value="`!pulse` → `!why` → `!watchtest` → `!power` → `!movelesson` → `!brief` → `!chart SPY 1d` → `!chart QQQ 1d` → `!news post`",
             inline=False,
         )
 
