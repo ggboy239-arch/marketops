@@ -10,11 +10,11 @@ from discord.ext import commands, tasks
 from market.market_change_engine import MarketChangeEngine
 
 
-VERSION = "MarketOps Market Change Explainer v1.0.0"
+VERSION = "MarketOps Market Change Explainer v1.1.0"
 
 
 class MarketChanges(commands.Cog):
-    """Explain what may be driving market changes."""
+    """Compact explanation of what changed and what may be driving it."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -56,7 +56,7 @@ class MarketChanges(commands.Cog):
             await ctx.send(embed=self._help_embed())
             return
         if lowered in {"post", "send", "test"}:
-            await self._post_explainer(ctx, force=True)
+            await self._post_explainer(ctx)
             return
 
         focus = None if lowered == "now" else action
@@ -67,11 +67,11 @@ class MarketChanges(commands.Cog):
         except Exception as error:
             self.last_error = repr(error)
             print(f"❌ !why error: {error!r}")
-            await ctx.send("⚠️ MarketOps had trouble explaining the market change. Check the terminal for the error.")
+            await ctx.send("⚠️ MarketOps had trouble explaining the market move. Check the terminal for the error.")
 
     @commands.command(name="whypost", aliases=["marketwhypost", "changepost"])
     async def whypost_prefix(self, ctx):
-        await self._post_explainer(ctx, force=True)
+        await self._post_explainer(ctx)
 
     @commands.command(name="whystatus", aliases=["marketwhystatus", "changestatus"])
     async def whystatus_prefix(self, ctx):
@@ -86,9 +86,7 @@ class MarketChanges(commands.Cog):
         await self.bot.wait_until_ready()
         if not self.enabled or not self.auto_post:
             return
-
-        elapsed_seconds = monotonic() - self._last_poll
-        if elapsed_seconds < self.poll_minutes * 60:
+        if monotonic() - self._last_poll < self.poll_minutes * 60:
             return
         self._last_poll = monotonic()
 
@@ -97,9 +95,11 @@ class MarketChanges(commands.Cog):
             self.last_check = report.get("updated", "Unknown")
             if not report.get("significant"):
                 return
+
             signature = report.get("signature", "unknown")
             if self.state.get("last_signature") == signature:
                 return
+
             self.state["last_signature"] = signature
             self.state["last_check"] = self.last_check
             self._save_state()
@@ -114,14 +114,16 @@ class MarketChanges(commands.Cog):
             self.last_error = repr(error)
             print(f"❌ Market change explainer loop error: {error!r}")
 
-    async def _post_explainer(self, ctx, force=False):
+    async def _post_explainer(self, ctx):
         if ctx.guild is None:
             await ctx.send("⚠️ Run this inside the Discord server.")
             return
+
         channel = await self._ensure_channel(ctx.guild)
         if channel is None:
-            await ctx.send(f"⚠️ I cannot find or create `#{self.channel_name}`. Check channel permissions.")
+            await ctx.send(f"⚠️ I cannot find or create `#{self.channel_name}`.")
             return
+
         try:
             report = await asyncio.to_thread(self.engine.build_explainer)
             await channel.send(embed=self._explainer_embed(report), allowed_mentions=discord.AllowedMentions.none())
@@ -130,109 +132,132 @@ class MarketChanges(commands.Cog):
         except Exception as error:
             self.last_error = repr(error)
             print(f"❌ !whypost error: {error!r}")
-            await ctx.send("⚠️ MarketOps had trouble posting the market-change explainer. Check the terminal for the error.")
+            await ctx.send("⚠️ MarketOps had trouble posting the market-change explainer. Check the terminal.")
 
     def _explainer_embed(self, report):
-        title = "🧠 Why Did The Market Move?"
-        desc = (
-            f"Theme: **{report.get('theme', 'Live Market')}**\n"
-            f"Risk mood: **{report.get('risk', 'Unknown')}** • Score: **{report.get('score', 'Unknown')}/100**\n"
-            "This is an explanation framework, not proof or financial advice."
-        )
-        embed = discord.Embed(title=title, description=desc, color=discord.Color.blurple())
+        biggest = self._biggest_move(report)
+        biggest_text = biggest.get("line") if biggest else "No clear major move yet."
 
-        changed = report.get("changed_assets", [])
-        changed_lines = [item.get("line", "") for item in changed[:8] if item.get("line")]
+        embed = discord.Embed(
+            title="🧠 Market Move Explained",
+            description=(
+                f"**Theme:** {report.get('theme', 'Live Market')}\n"
+                f"**Risk:** {report.get('risk', 'Unknown')} • **Score:** {report.get('score', 'Unknown')}/100\n"
+                f"**Biggest move:** {biggest_text}"
+            ),
+            color=discord.Color.blurple(),
+        )
+
+        changed = [item for item in report.get("changed_assets", []) if item.get("importance") == "major"]
+        if not changed:
+            changed = report.get("changed_assets", [])[:3]
+        move_lines = [f"• {item.get('line', '')}" for item in changed[:4] if item.get("line")]
         embed.add_field(
-            name="1️⃣ What Changed",
-            value="\n".join(changed_lines)[:1024] if changed_lines else "No clear market move found yet.",
+            name="1️⃣ What changed?",
+            value="\n".join(move_lines)[:1024] if move_lines else "No clear market move yet.",
             inline=False,
         )
 
-        drivers = report.get("possible_drivers", [])
+        drivers = [self._clean_driver(item) for item in report.get("possible_drivers", [])[:3]]
         embed.add_field(
-            name="2️⃣ Possible Drivers",
-            value="\n".join(f"• {item}" for item in drivers[:6])[:1024] if drivers else "No clear driver yet.",
+            name="2️⃣ What may be driving it?",
+            value="\n".join(f"• {item}" for item in drivers if item)[:1024] or "No clear driver yet.",
             inline=False,
         )
 
-        economics = report.get("economics", [])
+        economics = [self._short(item, 220) for item in report.get("economics", [])[:3]]
         embed.add_field(
-            name="3️⃣ Translate The Economics",
-            value="\n".join(f"• {item}" for item in economics[:5])[:1024] if economics else "No clear economic path yet.",
+            name="3️⃣ Why does that matter?",
+            value="\n".join(f"• {item}" for item in economics if item)[:1024] or "Economic path is still unclear.",
             inline=False,
         )
 
-        sectors = report.get("sectors", [])
+        sectors = report.get("sectors", [])[:4]
+        if sectors:
+            embed.add_field(name="Affected", value="\n".join(f"• {item}" for item in sectors)[:1024], inline=False)
+
+        confirm = report.get("confirm", [])[:6]
         embed.add_field(
-            name="Affected Sectors / Tickers",
-            value="\n".join(f"• {item}" for item in sectors[:6])[:1024] if sectors else "No sector read yet.",
+            name="What to check next",
+            value="\n".join(f"• {item}" for item in confirm)[:1024] if confirm else "Use `!pulse`, `!news post`, and a chart to confirm.",
             inline=False,
         )
 
         policy_items = report.get("policy_items", [])
         if policy_items:
-            policy_lines = []
-            for item in policy_items[:3]:
-                branch = item.get("branch", "Policy")
-                title = item.get("title", "Untitled")
-                policy_lines.append(f"• {branch}: {title}")
-            embed.add_field(name="Federal Power Angle", value="\n".join(policy_lines)[:1024], inline=False)
+            top_policy = policy_items[0]
+            embed.add_field(
+                name="🏛️ Government angle",
+                value=self._short(f"{top_policy.get('branch', 'Policy')}: {top_policy.get('title', 'Untitled')}", 300),
+                inline=False,
+            )
 
-        confirm = report.get("confirm", [])
-        embed.add_field(
-            name="Confirm Next",
-            value="\n".join(f"• {item}" for item in confirm[:8])[:1024],
-            inline=False,
-        )
-        embed.add_field(name="Confidence", value=report.get("confidence", "Unknown"), inline=False)
-        embed.set_footer(text=f"Checked {report.get('updated', 'Unknown')} • {VERSION}")
+        embed.add_field(name="Confidence", value=report.get("confidence", "Unknown"), inline=True)
+        embed.set_footer(text=f"Checked {report.get('updated', 'Unknown')} • Use !chart to confirm price action • {VERSION}")
         return embed
 
     def _status_embed(self):
         embed = discord.Embed(
-            title="🧠 Market Change Explainer Status",
-            description="Explains market moves by connecting price, news, sectors, and federal/policy changes.",
+            title="🧠 Market Change Explainer",
+            description="Compact mode: explains meaningful market moves without dumping every signal.",
             color=discord.Color.green() if self.enabled else discord.Color.orange(),
         )
         embed.add_field(name="Enabled", value="YES" if self.enabled else "NO", inline=True)
         embed.add_field(name="Auto-post", value="YES" if self.auto_post else "NO", inline=True)
         embed.add_field(name="Channel", value=f"#{self.channel_name}", inline=True)
-        embed.add_field(name="Poll", value=f"{self.poll_minutes:g} minutes", inline=True)
+        embed.add_field(name="Checks", value=f"Every {self.poll_minutes:g} min", inline=True)
         embed.add_field(name="Last check", value=self.last_check, inline=True)
         embed.add_field(name="Last post", value=self.last_post, inline=True)
-        embed.add_field(name="Last error", value=self.last_error[:900], inline=False)
+        embed.add_field(name="Last error", value=self._short_error(self.last_error), inline=False)
         embed.set_footer(text=VERSION)
         return embed
 
     def _help_embed(self):
         embed = discord.Embed(
-            title="🧠 Market Change Explainer Help",
-            description="Use this when the market moves and you want to understand the why.",
+            title="🧠 Market Change Help",
+            description="Use this when the market moves and you want the explanation in plain English.",
             color=discord.Color.blue(),
         )
         embed.add_field(
             name="Commands",
             value=(
-                "`!why` — explain the current market move\n"
-                "`!why post` — post the explainer to the channel\n"
-                "`!whystatus` — status and last error\n"
-                "`!whyhelp` — this help card"
+                "`!why` — explain the current move\n"
+                "`!why post` — post it to the channel\n"
+                "`!whystatus` — monitor status\n"
+                "`!whyhelp` — this card"
             ),
             inline=False,
         )
-        embed.add_field(
-            name="Framework",
-            value="What changed → possible drivers → economic path → affected sectors → confirm next.",
-            inline=False,
-        )
-        embed.add_field(
-            name="Best Flow",
-            value="`!pulse` → `!why` → `!news post` → `!power` → `!chart SPY 1d` → `!chart QQQ 1d`",
-            inline=False,
-        )
+        embed.add_field(name="Reading order", value="**What changed → Driver → Why it matters → What to check next**", inline=False)
+        embed.add_field(name="Best flow", value="`!pulse` → `!why` → `!news post` → `!power` → `!chart SPY 1d`", inline=False)
         embed.set_footer(text=VERSION)
         return embed
+
+    def _biggest_move(self, report):
+        rows = report.get("changed_assets", [])
+        return rows[0] if rows else None
+
+    def _clean_driver(self, text):
+        value = str(text or "")
+        if value.lower().startswith("headline lead:"):
+            value = value.split(":", 1)[1].strip()
+        if value.lower().startswith("federal/policy lead:"):
+            value = "Government/policy: " + value.split(":", 1)[1].strip()
+        return self._short(value, 260)
+
+    def _short_error(self, error):
+        text = str(error or "None")
+        if text == "None":
+            return "None"
+        if "http" in text:
+            text = text.split("http", 1)[0].strip(" :-")
+        return self._short(text, 250)
+
+    def _short(self, value, limit):
+        text = " ".join(str(value or "").split())
+        if len(text) <= limit:
+            return text
+        return text[: max(0, limit - 1)] + "…"
 
     async def _ensure_channel(self, guild):
         existing = self._find_channel(guild)
