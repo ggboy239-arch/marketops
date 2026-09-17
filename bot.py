@@ -251,6 +251,7 @@ async def load():
     await bot.load_extension("cogs.tickets")
     await bot.load_extension("cogs.logs")
     await bot.load_extension("cogs.calendar")
+    await bot.load_extension("cogs.amazon_leads")
 
 
 async def main():
