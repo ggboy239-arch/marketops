@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from market.government_power_engine import GovernmentPowerEngine
+from market.market_service import MarketService
 from market.news_engine import NewsEngine
 
 
@@ -11,7 +13,12 @@ PT_ZONE = ZoneInfo("America/Los_Angeles")
 
 
 class PolicyBriefEngine:
-    """Build a sourced, plain-language policy-to-market lesson with OpenAI."""
+    """Build a plain-language policy-to-market lesson.
+
+    If OPENAI_API_KEY is configured, MarketOps uses OpenAI web search for a richer
+    sourced explanation. If not, it falls back to MarketOps' own public-source
+    government/news/market pipeline so the Discord channel still works.
+    """
 
     POLICY_WORDS = (
         "white house", "congress", "senate", "supreme court", "treasury",
@@ -28,40 +35,141 @@ class PolicyBriefEngine:
         self.timeout_seconds = int(os.getenv("OPENAI_POLICY_TIMEOUT_SECONDS", "120"))
         self.lookback_hours = float(os.getenv("POLICY_BRIEF_LOOKBACK_HOURS", "30"))
         self.news = NewsEngine()
+        self.gov_power = GovernmentPowerEngine()
+        self.market = MarketService()
+
+    @property
+    def openai_enabled(self):
+        return bool(self.api_key)
 
     @property
     def enabled(self):
-        return bool(self.api_key)
+        # The local public-source fallback means the policy system can always run.
+        return True
+
+    @property
+    def mode(self):
+        return "OpenAI + web verification" if self.openai_enabled else "MarketOps local fallback"
 
     def build_brief(self):
-        if not self.api_key:
-            raise RuntimeError(
-                "OPENAI_API_KEY is missing. Add it to .env; never paste it into Discord or GitHub."
-            )
-
         now = datetime.now(PT_ZONE)
-        candidates = self._candidate_headlines()
-        prompt = self._prompt(now, candidates)
-        text = self._request_brief(prompt)
 
-        if not text or text.strip() == "NO_MEANINGFUL_UPDATE":
+        if self.openai_enabled:
+            try:
+                candidates = self._candidate_headlines()
+                prompt = self._prompt(now, candidates)
+                text = self._request_brief(prompt)
+                if text and text.strip() != "NO_MEANINGFUL_UPDATE":
+                    return {
+                        "no_update": False,
+                        "text": text.strip(),
+                        "updated": now.strftime("%I:%M %p PT").lstrip("0"),
+                        "model": self.model,
+                        "mode": self.mode,
+                    }
+            except Exception as error:
+                # Do not kill the Discord feed because the OpenAI call failed.
+                print(f"⚠️ OpenAI policy brief failed; using local fallback: {error!r}")
+
+        return self._build_local_brief(now)
+
+    def _build_local_brief(self, now):
+        policy_items = []
+        policy_errors = []
+        try:
+            report = self.gov_power.build_report()
+            policy_items = report.get("items", [])
+            policy_errors = report.get("errors", [])
+        except Exception as error:
+            policy_errors = [f"Government source check failed: {error}"]
+
+        news_items = self._policy_news_items()
+        dashboard = self.market.get_dashboard()
+
+        item = policy_items[0] if policy_items else None
+        news = news_items[0] if news_items else None
+
+        if item is None and news is None:
             return {
                 "no_update": True,
-                "text": "No new high-confidence policy development was found.",
+                "text": (
+                    "**No major policy change found right now.**\n\n"
+                    f"Market mood: **{dashboard.get('risk', 'Unknown')}** • "
+                    f"Theme: **{dashboard.get('theme', 'Live Market')}**\n\n"
+                    "MarketOps checked its public government/news sources but did not find a "
+                    "clear high-confidence policy event to connect to the market yet."
+                ),
                 "updated": now.strftime("%I:%M %p PT").lstrip("0"),
-                "model": self.model,
+                "model": "local",
+                "mode": self.mode,
+                "source_errors": policy_errors[:2],
             }
+
+        if item is not None:
+            branch = item.get("branch", "Government")
+            title = item.get("title", "Untitled government action")
+            event_type = item.get("event_type", "Government action")
+            sectors = ", ".join(item.get("sectors", [])[:4]) or "No clear sector yet"
+            translation = item.get("translate", "Economic impact still needs confirmation.")
+            confirm = ", ".join(item.get("confirm", [])[:7]) or "SPY, QQQ, VIX"
+            link = item.get("link", "")
+            source_line = f"[Open official source](<{link}>)" if link else "Official public record"
+
+            text = (
+                f"**Policy-to-market lesson: {self._short(title, 140)}**\n\n"
+                f"**What changed:** {branch} • {event_type}\n"
+                f"{source_line}\n\n"
+                f"**Why it may matter:** {self._short(translation, 520)}\n\n"
+                f"**Affected:** {sectors}\n\n"
+                f"**Market right now:** {dashboard.get('theme', 'Live Market')} • "
+                f"Risk: {dashboard.get('risk', 'Unknown')}\n\n"
+                f"**Confirm next:** {confirm}\n\n"
+                "**Simple takeaway:** Treat the government action as a possible driver, not proven cause, "
+                "until price, sector movement, volume, or reliable reporting confirms the connection."
+            )
+        else:
+            title = news.get("title", "Policy headline")
+            source = news.get("source", "Unknown")
+            link = news.get("link", "")
+            link_line = f"[Open headline](<{link}>)" if link else ""
+            text = (
+                f"**Policy-to-market lesson: {self._short(title, 140)}**\n\n"
+                f"**What changed:** A policy-related headline was detected from **{source}**.\n"
+                f"{link_line}\n\n"
+                f"**Market right now:** {dashboard.get('theme', 'Live Market')} • "
+                f"Risk: {dashboard.get('risk', 'Unknown')}\n\n"
+                "**Why it may matter:** Check whether this changes costs, demand, supply, regulation, "
+                "credit conditions, taxes, tariffs, or legal risk for a sector.\n\n"
+                "**Confirm next:** Use `!why`, `!pulse`, and a sector/stock chart before connecting the headline to the move."
+            )
 
         return {
             "no_update": False,
-            "text": text.strip(),
+            "text": text,
             "updated": now.strftime("%I:%M %p PT").lstrip("0"),
-            "model": self.model,
+            "model": "local",
+            "mode": self.mode,
+            "source_errors": policy_errors[:2],
         }
 
+    def _policy_news_items(self):
+        original_window = self.news.max_age_hours
+        try:
+            self.news.max_age_hours = max(original_window, self.lookback_hours)
+            report = self.news.get_top_news(limit=30, category="all")
+            items = [item for item in report.get("items", []) if item.get("provider") != "Reddit RSS"]
+            policy_items = []
+            for item in items:
+                searchable = f'{item.get("title", "")} {item.get("summary", "")}'.lower()
+                if any(word in searchable for word in self.POLICY_WORDS):
+                    policy_items.append(item)
+            return policy_items
+        except Exception:
+            return []
+        finally:
+            self.news.max_age_hours = original_window
+
     def _candidate_headlines(self):
-        # The regular news bot is intentionally very fresh. The policy lesson
-        # needs a longer window because official actions often arrive after close.
         self.news.max_age_hours = max(self.news.max_age_hours, self.lookback_hours)
         report = self.news.get_top_news(limit=40, category="all")
         items = [
@@ -161,7 +269,6 @@ Independently verify the chosen topic before writing:
                 return self._output_text(response.json())
 
             last_error = f"OpenAI HTTP {response.status_code}: {response.text[:500]}"
-            # Retry only when the API rejected the web-search tool name.
             if response.status_code != 400:
                 break
 
@@ -176,3 +283,9 @@ Independently verify the chosen topic before writing:
                 if content_item.get("type") == "output_text" and content_item.get("text"):
                     pieces.append(content_item["text"])
         return "\n".join(pieces).strip()
+
+    def _short(self, value, limit):
+        text = " ".join(str(value or "").split())
+        if len(text) <= limit:
+            return text
+        return text[: max(0, limit - 1)] + "…"
