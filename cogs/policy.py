@@ -12,12 +12,16 @@ from discord.ext import commands, tasks
 from market.policy_brief_engine import PolicyBriefEngine
 
 
-VERSION = "MarketOps Policy Brief v0.1.0"
+VERSION = "MarketOps Policy Brief v0.2.0"
 PT_ZONE = ZoneInfo("America/Los_Angeles")
 
 
 class PolicyBrief(commands.Cog):
-    """Personal OpenAI-written policy lesson for one Discord channel."""
+    """Automatic policy-to-market lesson channel.
+
+    Works with OpenAI when OPENAI_API_KEY is configured, but also has a local
+    MarketOps fallback so policy posts do not stop when the API key is absent.
+    """
 
     def __init__(self, bot):
         self.bot = bot
@@ -26,8 +30,11 @@ class PolicyBrief(commands.Cog):
         self.auto_post = self._env_bool("POLICY_BRIEF_AUTO_POST", True)
         self.create_channel = self._env_bool("POLICY_BRIEF_CREATE_CHANNEL", True)
         self.weekdays_only = self._env_bool("POLICY_BRIEF_WEEKDAYS_ONLY", True)
+        self.post_no_update = self._env_bool("POLICY_BRIEF_POST_NO_UPDATE", True)
         self.post_time = os.getenv("POLICY_BRIEF_TIME_PT", "05:30").strip()
-        self.catchup_minutes = int(os.getenv("POLICY_BRIEF_CATCHUP_MINUTES", "30"))
+        # Wide default catch-up window: if the bot starts later in the morning,
+        # it can still send that day's policy lesson instead of silently missing it.
+        self.catchup_minutes = int(os.getenv("POLICY_BRIEF_CATCHUP_MINUTES", "360"))
         self.state_file = Path("data/policy_brief_state.json")
         self.state = self._load_state()
         self.last_error = "None"
@@ -72,6 +79,10 @@ class PolicyBrief(commands.Cog):
                     await ctx.send(f"⚠️ Create `#{self.channel_name}` or give MarketOps Manage Channels permission.")
                     return
                 await channel.send(embed=self._embed(brief), allowed_mentions=discord.AllowedMentions.none())
+                self.state["last_result"] = f'Manual post {brief.get("updated", "Unknown")}'
+                self.state["last_manual_post"] = datetime.now(PT_ZONE).isoformat()
+                self._save_state()
+                self.last_error = "None"
                 await ctx.send(f"✅ Sent a policy brief to #{channel.name}.")
                 return
             await ctx.send(embed=self._embed(brief), allowed_mentions=discord.AllowedMentions.none())
@@ -84,7 +95,8 @@ class PolicyBrief(commands.Cog):
     async def policy_schedule(self):
         await self.bot.wait_until_ready()
         now = datetime.now(PT_ZONE)
-        if not self.auto_post or not self.engine.enabled:
+
+        if not self.auto_post:
             return
         if self.weekdays_only and now.weekday() >= 5:
             return
@@ -95,13 +107,13 @@ class PolicyBrief(commands.Cog):
         if self.state.get("last_post_date") == post_key:
             return
 
-        # Reserve the date before the slower API call. If it fails, clear the
-        # reservation so the loop can retry inside the catch-up window.
         self.state["last_post_date"] = post_key
         self._save_state()
+
         try:
             brief = await asyncio.to_thread(self.engine.build_brief)
-            if brief.get("no_update"):
+
+            if brief.get("no_update") and not self.post_no_update:
                 self.state["last_result"] = "No meaningful update"
                 self._save_state()
                 return
@@ -119,11 +131,14 @@ class PolicyBrief(commands.Cog):
                     "Create it or give MarketOps Manage Channels permission."
                 )
 
-            self.state["last_result"] = f'Posted {brief.get("updated", "Unknown")}'
+            result_label = "No major update — daily check posted" if brief.get("no_update") else f'Posted {brief.get("updated", "Unknown")}'
+            self.state["last_result"] = result_label
+            self.state["last_auto_post"] = datetime.now(PT_ZONE).isoformat()
             self.last_error = "None"
             self._save_state()
             print(f"🧠 Posted policy brief to #{self.channel_name}.")
         except Exception as error:
+            # Clear reservation so it can retry while still inside catch-up window.
             self.state.pop("last_post_date", None)
             self.last_error = repr(error)
             self._save_state()
@@ -131,7 +146,7 @@ class PolicyBrief(commands.Cog):
 
     def _embed(self, brief):
         if brief.get("no_update"):
-            description = "No new high-confidence policy development was found today."
+            description = brief.get("text") or "No new high-confidence policy development was found today."
             color = discord.Color.gold()
         else:
             description = brief.get("text", "No brief returned.")
@@ -141,10 +156,18 @@ class PolicyBrief(commands.Cog):
             description = description[:3970].rsplit("\n", 1)[0] + "\n\n…Brief shortened for Discord."
 
         embed = discord.Embed(
-            title="🧠 OpenAI News for Me",
+            title="🧠 Policy → Market Lesson",
             description=description,
             color=color,
         )
+        embed.add_field(name="Mode", value=brief.get("mode", self.engine.mode), inline=True)
+        source_errors = brief.get("source_errors", [])
+        if source_errors:
+            embed.add_field(
+                name="Source note",
+                value="\n".join(f"• {self._short_error(item)}" for item in source_errors[:2])[:900],
+                inline=False,
+            )
         embed.set_footer(
             text=f'Updated {brief.get("updated", "Unknown")} • Public information only • {VERSION}'
         )
@@ -152,19 +175,22 @@ class PolicyBrief(commands.Cog):
 
     def _status_embed(self):
         status = "ON" if self.auto_post else "OFF"
-        key_status = "Ready" if self.engine.enabled else "OPENAI_API_KEY missing"
+        openai_status = "Ready" if self.engine.openai_enabled else "Not added — local fallback active"
         embed = discord.Embed(
-            title="🧠 OpenAI News for Me Status",
-            description="One verified, plain-language policy-to-market lesson on weekdays.",
-            color=discord.Color.green() if self.engine.enabled else discord.Color.orange(),
+            title="🧠 Policy → Market Status",
+            description="Automatic policy-to-market lesson. It can run even without an OpenAI API key.",
+            color=discord.Color.green() if self.auto_post else discord.Color.orange(),
         )
         embed.add_field(name="Auto-post", value=status, inline=True)
         embed.add_field(name="Channel", value=f"#{self.channel_name}", inline=True)
         embed.add_field(name="Time", value=f"{self.post_time} PT", inline=True)
-        embed.add_field(name="OpenAI", value=key_status, inline=True)
-        embed.add_field(name="Last result", value=self.state.get("last_result", "Not posted yet"), inline=True)
-        embed.add_field(name="Last error", value=self.last_error[:900], inline=False)
-        embed.add_field(name="Test", value="Use `!policy post` in this channel.", inline=False)
+        embed.add_field(name="Catch-up", value=f"{self.catchup_minutes} min", inline=True)
+        embed.add_field(name="OpenAI", value=openai_status, inline=True)
+        embed.add_field(name="Mode", value=self.engine.mode, inline=True)
+        embed.add_field(name="Post no-update check", value="YES" if self.post_no_update else "NO", inline=True)
+        embed.add_field(name="Last result", value=self.state.get("last_result", "Not posted yet"), inline=False)
+        embed.add_field(name="Last error", value=self._short_error(self.last_error), inline=False)
+        embed.add_field(name="Test", value="Use `!policy post` in `#openai-news-for-me`.", inline=False)
         embed.set_footer(text=VERSION)
         return embed
 
@@ -183,7 +209,7 @@ class PolicyBrief(commands.Cog):
             return await guild.create_text_channel(
                 self.channel_name,
                 category=category,
-                reason="MarketOps personal OpenAI policy briefing",
+                reason="MarketOps personal policy-to-market briefing",
             )
         except discord.Forbidden:
             print(f"⚠️ Cannot create #{self.channel_name}; MarketOps needs Manage Channels permission.")
@@ -211,10 +237,24 @@ class PolicyBrief(commands.Cog):
         return scheduled <= now <= scheduled + timedelta(minutes=self.catchup_minutes)
 
     def _friendly_error(self, error):
-        message = str(error)
-        if "OPENAI_API_KEY" in message:
-            return "⚠️ Add `OPENAI_API_KEY=your-key` to the `.env` file, save it, and restart MarketOps. Never post the key in Discord."
-        return "⚠️ The policy brief could not be created. Use `!policy status` and check the bot terminal."
+        return (
+            "⚠️ The policy brief could not be created. MarketOps should fall back to public-source mode even without an OpenAI key. "
+            "Use `!policy status` and paste the terminal line beginning with `❌ !policy error:` if it still fails."
+        )
+
+    def _short_error(self, error):
+        text = str(error or "None")
+        if text == "None":
+            return "None"
+        if "401" in text:
+            return "A source needs authentication/token setup."
+        if "403" in text:
+            return "A source rejected the current API key or placeholder value."
+        if "429" in text:
+            return "A source rate-limited the request."
+        if "timed out" in text.lower() or "timeout" in text.lower():
+            return "A source timed out. MarketOps will retry later."
+        return text[:240]
 
     def _clean_name(self, value):
         cleaned = (value or "").strip().lower()
