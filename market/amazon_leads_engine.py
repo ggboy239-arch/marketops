@@ -7,7 +7,7 @@ import requests
 
 
 AMAZON = 0
-NEW = 1
+COUNT_NEW = 11
 SALES = 3
 BUY_BOX_SHIPPING = 18
 TOYS_ROOT = 165793011
@@ -159,7 +159,7 @@ class AmazonLeadsEngine:
             profit = round(exit_price * (1 - self.referral_rate) - self.fba_fee - buy, 2)
             roi = round(profit / buy * 100, 1)
         rank = self._positive(self._at(current, SALES))
-        sellers = self._positive(self._at(current, NEW))
+        sellers = self._positive(self._at(current, COUNT_NEW))
         monthly = self._positive(p.get("monthlySold"))
         drops = self._positive(stats.get("salesRankDrops30"))
         oos90 = self._positive((stats.get("outOfStockPercentage90") or [None])[AMAZON])
