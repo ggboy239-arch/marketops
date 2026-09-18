@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,7 +15,8 @@ class Storefronts(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.engine = StorefrontEngine()
-        self.minutes = max(30, int(os.getenv("STOREFRONT_CHECK_MINUTES", "120")))
+        self.minutes = max(5, int(os.getenv("STOREFRONT_CHECK_MINUTES", "10")))
+        self.product_delay = max(10, int(os.getenv("STOREFRONT_PRODUCT_DELAY_SECONDS", "20")))
         self.state_file = Path("data/storefront_state.json")
         self.state = self._load_state()
         self.state.setdefault("stores", {})
@@ -26,7 +28,7 @@ class Storefronts(commands.Cog):
     def cog_unload(self):
         self.monitor.cancel()
 
-    @tasks.loop(minutes=120)
+    @tasks.loop(minutes=10)
     async def monitor(self):
         await self.bot.wait_until_ready()
         await self._scan_all()
@@ -34,9 +36,9 @@ class Storefronts(commands.Cog):
     @monitor.before_loop
     async def before_monitor(self):
         await self.bot.wait_until_ready()
-        # Avoid competing with the Amazon lead scanner for Keepa tokens at boot.
-        # Manual `!storefront scan` remains available immediately.
-        await asyncio.sleep(self.minutes * 60)
+        # Let the bot finish connecting, then begin loading saved storefronts
+        # automatically without requiring a manual scan command.
+        await asyncio.sleep(60)
 
     @commands.group(name="storefront", invoke_without_command=True)
     async def storefront(self, ctx):
@@ -44,6 +46,7 @@ class Storefronts(commands.Cog):
         await ctx.send(
             "**Amazon storefront monitor**\n"
             f"Watching: {len(stores)} storefront(s) • automatic scan: every {self.minutes} minutes\n"
+            f"Pacing: one product about every {self.product_delay} seconds\n"
             f"Last scan: {self.state.get('last_scan', 'Not yet')} • Last error: {self.last_error}\n\n"
             "`!storefront add <URL or seller ID>`\n"
             "`!storefront list` • `!storefront scan` • `!storefront remove <seller ID>`"
@@ -65,7 +68,7 @@ class Storefronts(commands.Cog):
             self._save_state()
             await ctx.send(
                 f"✅ Added **{name}** (`{seller_id}`) with {len(asins)} public product(s).\n"
-                f"Products will post in {ctx.channel.mention}. Run `!storefront scan` to load the first batch."
+                f"Products will begin loading automatically in {ctx.channel.mention}."
             )
         except Exception as error:
             await ctx.send(f"❌ Could not add storefront: {str(error)[:500]}")
@@ -128,12 +131,11 @@ class Storefronts(commands.Cog):
             self.last_error = "None"
             try:
                 for seller_id, store in self.state.get("stores", {}).items():
-                    name, asins = await asyncio.to_thread(self.engine.storefront, seller_id)
+                    name, asins = await self._keepa_call(self.engine.storefront, seller_id)
                     store["name"] = name; store["last_found"] = len(asins)
                     seen = set(store.get("seen", []))
                     pending = [asin for asin in asins if asin not in seen]
                     attempted = pending[: self.engine.batch_size]
-                    products = await asyncio.to_thread(self.engine.products, attempted)
                     channel_id = str(store.get("channel_id", ""))
                     channel = self.bot.get_channel(int(channel_id)) if channel_id.isdigit() else None
                     if channel is None:
@@ -141,20 +143,37 @@ class Storefronts(commands.Cog):
                     permissions = channel.permissions_for(channel.guild.me)
                     if not permissions.send_messages or not permissions.embed_links:
                         raise RuntimeError(f"Discord permissions missing in #{channel.name}: Send Messages and Embed Links are required.")
-                    for product in products:
-                        await channel.send(embed=self._embed(product, name, seller_id), allowed_mentions=discord.AllowedMentions.none())
-                        seen.add(product.asin); store["seen"] = sorted(seen); self._save_state(); total += 1
-                    # Skip unavailable/deleted ASINs Keepa omitted so they do not
-                    # block later products at the front of every future batch.
-                    seen.update(attempted)
-                    store["seen"] = sorted(seen)
-                    self._save_state()
+                    for index, asin in enumerate(attempted):
+                        products = await self._keepa_call(self.engine.products, [asin])
+                        for product in products:
+                            await channel.send(embed=self._embed(product, name, seller_id), allowed_mentions=discord.AllowedMentions.none())
+                            total += 1
+                        # Save after every ASIN so a restart continues where it
+                        # stopped. Omitted/deleted ASINs cannot block the queue.
+                        seen.add(asin)
+                        store["seen"] = sorted(seen)
+                        self._save_state()
+                        if index < len(attempted) - 1:
+                            await asyncio.sleep(self.product_delay)
                 self.state["last_scan"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 self._save_state()
             except Exception as error:
                 self.last_error = str(error)[:500]
                 print(f"❌ Storefront scan error: {error!r}")
             return total
+
+    async def _keepa_call(self, function, *args):
+        """Wait for Keepa's stated refill time and resume the same operation."""
+        for attempt in range(3):
+            try:
+                return await asyncio.to_thread(function, *args)
+            except RuntimeError as error:
+                match = re.search(r"Retry in about (\d+) minute", str(error), re.I)
+                if not match or attempt == 2:
+                    raise
+                wait_seconds = max(self.product_delay, min(600, int(match.group(1)) * 60 + 5))
+                print(f"⏳ Keepa refill pause: {wait_seconds} seconds")
+                await asyncio.sleep(wait_seconds)
 
     @staticmethod
     def _embed(product, store_name, seller_id):

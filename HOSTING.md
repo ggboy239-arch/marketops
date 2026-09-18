@@ -28,8 +28,11 @@ MarketOps stores deduplication state under `data/`. To preserve it across deploy
 
 The Amazon storefront monitor uses the existing `KEEPA_API_KEY` and saves its
 seller/product history in `data/storefront_state.json`. Optional controls are
-`STOREFRONT_CHECK_MINUTES=120` (minimum 30) and
-`STOREFRONT_PRODUCTS_PER_SCAN=20` (maximum 20).
+`STOREFRONT_CHECK_MINUTES=10` (minimum 5),
+`STOREFRONT_PRODUCTS_PER_SCAN=20` (maximum 20), and
+`STOREFRONT_PRODUCT_DELAY_SECONDS=20` (minimum 10). Products are requested one
+at a time so Keepa tokens can refill between items. A Keepa refill response
+pauses and resumes the same scan automatically.
 
 ## Cost control
 

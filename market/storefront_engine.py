@@ -90,10 +90,20 @@ class StorefrontEngine:
             seller = next(iter(sellers.values()))
         if not isinstance(seller, dict):
             raise RuntimeError("Keepa did not return that Amazon seller. Check the seller ID and marketplace.")
-        asins = []
-        for asin in seller.get("asinList") or []:
+        raw_asins = seller.get("asinList") or []
+        last_seen = seller.get("asinListLastSeen") or []
+        inventory = []
+        for index, asin in enumerate(raw_asins):
             asin = str(asin).upper()
-            if re.fullmatch(r"[A-Z0-9]{10}", asin) and asin not in asins:
+            if re.fullmatch(r"[A-Z0-9]{10}", asin):
+                timestamp = last_seen[index] if index < len(last_seen) and isinstance(last_seen[index], (int, float)) else 0
+                inventory.append((timestamp, index, asin))
+        # Prioritize the seller's newest listings. The Discord state still
+        # guarantees every ASIN is posted only once.
+        inventory.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        asins = []
+        for _, _, asin in inventory:
+            if asin not in asins:
                 asins.append(asin)
         name = str(seller.get("sellerName") or seller.get("businessName") or seller_id)
         return name[:150], asins
