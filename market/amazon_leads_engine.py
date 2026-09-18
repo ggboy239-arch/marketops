@@ -53,7 +53,7 @@ class AmazonLeadsEngine:
 
     API = "https://api.keepa.com"
     BRANDS = {
-        "barbie", "crayola", "disney", "fisher-price", "funko", "hasbro",
+        "barbie", "disney", "fisher-price", "funko", "hasbro",
         "hot wheels", "jazwares", "just play", "lego", "loungefly", "mattel",
         "mcfarlane toys", "mga entertainment", "moose toys", "neca", "nerf",
         "play-doh", "pokemon", "ravensburger", "spin master", "star wars",
@@ -81,7 +81,7 @@ class AmazonLeadsEngine:
             ("90-day rank + stock cycling", self._selection("90")),
             ("180-day sustained demand", self._selection("180")),
             ("Mattel / Barbie / Hot Wheels", self._selection("brands", ["Mattel", "Barbie", "Hot Wheels", "Fisher-Price"])),
-            ("Other approved toy brands", self._selection("brands", ["Hasbro", "Jazwares", "Spin Master", "Funko", "Loungefly", "MGA Entertainment", "Moose Toys", "Just Play", "NECA", "McFarlane Toys", "Ravensburger", "Crayola"])),
+            ("Other approved toy brands", self._selection("brands", ["Hasbro", "Jazwares", "Spin Master", "Funko", "Loungefly", "MGA Entertainment", "Moose Toys", "Just Play", "NECA", "McFarlane Toys", "Ravensburger"])),
         )
         # Every scan covers Amazon both in and out of stock. The final query
         # rotates time-window and brand methods to stay within the token budget.
