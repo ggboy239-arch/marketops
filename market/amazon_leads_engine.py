@@ -1,9 +1,11 @@
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from statistics import median
 
 import requests
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 
 
 AMAZON = 0
@@ -31,6 +33,7 @@ class Lead:
     score: int
     reason: str
     methods: str
+    history: dict
 
     @property
     def amazon_url(self):
@@ -60,7 +63,7 @@ class AmazonLeadsEngine:
     def __init__(self):
         self.key = os.getenv("KEEPA_API_KEY", "").strip()
         self.timeout = int(os.getenv("KEEPA_TIMEOUT_SECONDS", "25"))
-        self.max_products = int(os.getenv("AMAZON_LEADS_MAX_PRODUCTS", "20"))
+        self.max_products = max(40, int(os.getenv("AMAZON_LEADS_MAX_PRODUCTS", "40")))
         self.min_profit = float(os.getenv("AMAZON_LEADS_MIN_PROFIT", "10"))
         self.min_roi = float(os.getenv("AMAZON_LEADS_MIN_ROI", "20"))
         self.max_roi = float(os.getenv("AMAZON_LEADS_MAX_ROI", "100"))
@@ -71,22 +74,37 @@ class AmazonLeadsEngine:
         if not self.key:
             raise RuntimeError("KEEPA_API_KEY is missing")
         discovered = {}
+        pools = []
         strategies = (
             ("30-day rank + stock cycling", self._selection("30")),
             ("90-day rank + stock cycling", self._selection("90")),
             ("180-day sustained demand", self._selection("180")),
             ("Amazon currently OOS", self._selection("oos")),
+            ("Mattel / Barbie / Hot Wheels", self._selection("brands", ["Mattel", "Barbie", "Hot Wheels", "Fisher-Price"])),
+            ("Other approved toy brands", self._selection("brands", ["Hasbro", "Jazwares", "Spin Master", "Funko", "Loungefly", "MGA Entertainment", "Moose Toys", "Just Play", "NECA", "McFarlane Toys", "Ravensburger", "Crayola"])),
         )
         for label, selection in strategies:
             payload = self._get("/query", selection=selection)
-            for asin in payload.get("asinList") or []:
+            pool = payload.get("asinList") or []
+            pools.append(pool)
+            for asin in pool:
                 discovered.setdefault(asin, []).append(label)
 
-        asins = list(discovered)[: self.max_products]
+        # Round-robin across strategies so one dominant brand cannot consume
+        # every product-detail slot.
+        asins = []
+        for index in range(50):
+            for pool in pools:
+                if index < len(pool) and pool[index] not in asins:
+                    asins.append(pool[index])
+                    if len(asins) >= self.max_products:
+                        break
+            if len(asins) >= self.max_products:
+                break
         if not asins:
             return []
         products = self._get(
-            "/product", asin=",".join(asins), stats=180, history=0, buybox=1,
+            "/product", asin=",".join(asins), stats=180, history=1, buybox=1,
         ).get("products") or []
         leads = []
         for product in products:
@@ -94,9 +112,9 @@ class AmazonLeadsEngine:
             lead = self._evaluate(product)
             if lead:
                 leads.append(lead)
-        return sorted(leads, key=lambda x: (x.score, x.roi or 0, x.monthly_sold or 0), reverse=True)
+        return self._diversified_sort(leads)
 
-    def _selection(self, window):
+    def _selection(self, window, brands=None):
         # Product Finder requires perPage >= 50. We request a valid page, then
         # cap product-detail calls separately with AMAZON_LEADS_MAX_PRODUCTS.
         selection = {
@@ -108,6 +126,8 @@ class AmazonLeadsEngine:
             "current_COUNT_NEW_lte": 20,
             "monthlySold_gte": 20,
         }
+        if brands:
+            selection["brand"] = brands
         if window == "30":
             selection.update({
                 "current_SALES_lte": 175000,
@@ -129,11 +149,17 @@ class AmazonLeadsEngine:
                 "buyBoxStatsAmazon180_lte": 40,
                 "sort": [["salesRankDrops180", "desc"]],
             })
-        else:
+        elif window == "oos":
             selection.update({
                 "current_AMAZON_lte": -1,
                 "current_SALES_lte": 200000,
                 "salesRankDrops30_gte": 5,
+                "sort": [["monthlySold", "desc"]],
+            })
+        else:
+            selection.update({
+                "current_SALES_lte": 200000,
+                "salesRankDrops30_gte": 3,
                 "sort": [["monthlySold", "desc"]],
             })
         return selection
@@ -171,7 +197,77 @@ class AmazonLeadsEngine:
         else:
             lane, reason = "review", "Demand/stock pressure is promising, but price history needs manual review."
         score = min(100, (25 if not amazon else 15) + min(monthly or 0, 200) // 5 + min(drops or 0, 30) + (20 if qualifies else 0))
-        return Lead(str(p.get("asin")), title[:250], brand or "Known licensed brand", lane, amazon, exit_price, profit, roi, rank, monthly, drops, sellers, oos90, score, reason, ", ".join(p.get("_lead_methods") or ["Keepa discovery"]))
+        return Lead(str(p.get("asin")), title[:250], brand or "Known licensed brand", lane, amazon, exit_price, profit, roi, rank, monthly, drops, sellers, oos90, score, reason, ", ".join(p.get("_lead_methods") or ["Keepa discovery"]), self._history(p.get("csv")))
+
+    def _diversified_sort(self, leads):
+        ranked = sorted(leads, key=lambda x: (x.score, x.roi or 0, x.monthly_sold or 0), reverse=True)
+        groups = {}
+        for lead in ranked:
+            key = lead.brand.lower().replace("the lego group", "lego")
+            groups.setdefault(key, []).append(lead)
+        mixed = []
+        while groups:
+            for key in list(groups):
+                mixed.append(groups[key].pop(0))
+                if not groups[key]:
+                    del groups[key]
+        return mixed
+
+    def _history(self, csv):
+        csv = csv or []
+        return {
+            "Amazon": self._series(self._at(csv, AMAZON), True),
+            "New / Buy Box": self._series(self._at(csv, BUY_BOX_SHIPPING), True),
+            "Sales Rank": self._series(self._at(csv, SALES), False),
+        }
+
+    def chart_png(self, lead):
+        price_series = [lead.history.get("Amazon", []), lead.history.get("New / Buy Box", [])]
+        if not any(price_series):
+            return None
+        figure = Figure(figsize=(10, 4.8), dpi=120, facecolor="#10151f")
+        FigureCanvasAgg(figure)
+        axis = figure.add_subplot(111)
+        axis.set_facecolor("#10151f")
+        colors = {"Amazon": "#ff9900", "New / Buy Box": "#ff3ea5"}
+        for name in ("Amazon", "New / Buy Box"):
+            points = lead.history.get(name, [])
+            if points:
+                axis.step([p[0] for p in points], [p[1] for p in points], where="post", label=name, color=colors[name], linewidth=1.7)
+        axis.set_ylabel("Price ($)", color="white")
+        axis.tick_params(colors="white")
+        axis.grid(alpha=.18)
+        axis.legend(facecolor="#182131", labelcolor="white")
+        axis.set_title(f"{lead.brand} • {lead.asin} • 365-day Keepa history", color="white")
+        rank = lead.history.get("Sales Rank", [])
+        if rank:
+            rank_axis = axis.twinx()
+            rank_axis.plot([p[0] for p in rank], [p[1] for p in rank], color="#74c476", alpha=.45, linewidth=.8)
+            rank_axis.set_ylabel("Sales rank", color="#74c476")
+            rank_axis.tick_params(colors="#74c476")
+            rank_axis.invert_yaxis()
+        figure.autofmt_xdate()
+        figure.tight_layout()
+        import io
+        output = io.BytesIO()
+        figure.savefig(output, format="png", facecolor=figure.get_facecolor())
+        return output.getvalue()
+
+    @staticmethod
+    def _series(values, price):
+        if not isinstance(values, list):
+            return []
+        cutoff = datetime.now(timezone.utc) - timedelta(days=365)
+        epoch = datetime(2011, 1, 1, tzinfo=timezone.utc)
+        points = []
+        for index in range(0, len(values) - 1, 2):
+            moment, value = values[index], values[index + 1]
+            if not isinstance(moment, (int, float)) or not isinstance(value, (int, float)) or value < 0:
+                continue
+            when = epoch + timedelta(minutes=moment)
+            if when >= cutoff:
+                points.append((when, value / 100 if price else value))
+        return points
 
     def max_buy_price(self, lead):
         if not lead.exit_price:
