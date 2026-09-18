@@ -1,4 +1,5 @@
 import asyncio
+import io
 import json
 import os
 from datetime import datetime, timezone
@@ -65,7 +66,16 @@ class AmazonLeads(commands.Cog):
                 channel = self._channel(lead.lane)
                 if channel is None:
                     continue
-                await channel.send(embed=self._embed(lead), allowed_mentions=discord.AllowedMentions.none())
+                embed = self._embed(lead)
+                chart = await asyncio.to_thread(self.engine.chart_png, lead)
+                file = None
+                if chart:
+                    file = discord.File(io.BytesIO(chart), filename=f"keepa_{lead.asin}.png")
+                    embed.set_image(url=f"attachment://keepa_{lead.asin}.png")
+                if file:
+                    await channel.send(embed=embed, file=file, allowed_mentions=discord.AllowedMentions.none())
+                else:
+                    await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
                 self.state.setdefault("seen", {})[lead.asin] = signature
                 posted += 1
             self.state["last_scan"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -100,7 +110,6 @@ class AmazonLeads(commands.Cog):
         embed.add_field(name="Lead methods", value=lead.methods[:1000], inline=False)
         embed.add_field(name="Why it surfaced", value=lead.reason, inline=False)
         embed.add_field(name="Review", value=f"[Amazon]({lead.amazon_url}) • [Keepa]({lead.keepa_url})", inline=False)
-        embed.set_image(url=lead.chart_url)
         embed.set_footer(text=f"Score {lead.score}/100 • Fee estimate only • Check eligibility, tax and exact FBA fees before buying")
         return embed
 
