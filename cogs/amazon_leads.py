@@ -50,9 +50,16 @@ class AmazonLeads(commands.Cog):
                 await ctx.send(f"✅ Scan finished; {posted} lead(s) posted.")
             return
         configured = sum(bool(v.strip()) for v in self.channel_ids.values())
+        stats = self.state.get("last_scan_stats", {})
+        funnel = (
+            f"Discovered: {stats.get('discovered', 'N/A')} • "
+            f"Analyzed: {stats.get('products', 'N/A')} • "
+            f"Qualified: {stats.get('qualified', 'N/A')}"
+        )
         await ctx.send(
             f"**Amazon lead scanner**: every {self.minutes} min • {configured}/3 channels configured\n"
-            f"Last scan: {self.state.get('last_scan', 'Not yet')} • Last error: {self.last_error}"
+            f"Last scan: {self.state.get('last_scan', 'Not yet')} • Last error: {self.last_error}\n"
+            f"{funnel}"
         )
 
     async def _run_scan(self, force=False):
@@ -91,6 +98,7 @@ class AmazonLeads(commands.Cog):
                 posted += 1
             self.state["last_scan"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
             self.state["last_count"] = len(leads)
+            self.state["last_scan_stats"] = self.engine.last_scan_stats
             self.last_error = "None"
             self._save_state()
             return posted
