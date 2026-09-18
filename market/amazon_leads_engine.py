@@ -61,8 +61,8 @@ class AmazonLeadsEngine:
         self.timeout = int(os.getenv("KEEPA_TIMEOUT_SECONDS", "25"))
         self.max_products = int(os.getenv("AMAZON_LEADS_MAX_PRODUCTS", "20"))
         self.min_profit = float(os.getenv("AMAZON_LEADS_MIN_PROFIT", "10"))
-        self.min_roi = float(os.getenv("AMAZON_LEADS_MIN_ROI", "30"))
-        self.max_roi = float(os.getenv("AMAZON_LEADS_MAX_ROI", "60"))
+        self.min_roi = float(os.getenv("AMAZON_LEADS_MIN_ROI", "20"))
+        self.max_roi = float(os.getenv("AMAZON_LEADS_MAX_ROI", "100"))
         self.referral_rate = float(os.getenv("AMAZON_LEADS_REFERRAL_RATE", ".15"))
         self.fba_fee = float(os.getenv("AMAZON_LEADS_EST_FBA_FEE", "4.50"))
 
@@ -86,22 +86,25 @@ class AmazonLeadsEngine:
         return sorted(leads, key=lambda x: (x.score, x.roi or 0, x.monthly_sold or 0), reverse=True)
 
     def _selection(self, oos):
+        # Keepa's /query endpoint expects ProductFinderRequest field names,
+        # not the nested filter objects exported by the website UI.
         selection = {
             "page": 0,
             "perPage": min(self.max_products, 50),
-            "productType": {"values": ["0"], "filterType": "set"},
-            "rootCategory": {"filterType": "autocomplete", "filter": str(TOYS_ROOT), "type": "isOneOf"},
-            "SALES_current": {"filterType": "number", "type": "lessThanOrEqual", "filter": 150000},
-            "salesRankDrops30": {"filterType": "number", "type": "greaterThanOrEqual", "filter": 10},
-            "monthlySold": {"filterType": "number", "type": "greaterThanOrEqual", "filter": 50},
-            "COUNT_NEW_current": {"filterType": "number", "type": "inRange", "filter": 2, "filterTo": 15},
+            "productType": [0],
+            "rootCategory": [str(TOYS_ROOT)],
+            "current_SALES_lte": 150000,
+            "salesRankDrops30_gte": 10,
+            "monthlySold_gte": 50,
+            "current_COUNT_NEW_gte": 2,
+            "current_COUNT_NEW_lte": 15,
             "sort": [["salesRankDrops30", "desc"]],
         }
         if oos:
-            selection["AMAZON_outOfStock"] = {"filterType": "boolean", "filter": "on", "type": "equals"}
+            selection["availabilityAmazon"] = [-1]
         else:
-            selection["AMAZON_current"] = {"filterType": "number", "type": "greaterThan", "filter": 0}
-            selection["outOfStockCountAmazon90"] = {"filterType": "number", "type": "greaterThanOrEqual", "filter": 1}
+            selection["availabilityAmazon"] = [0]
+            selection["outOfStockCountAmazon90_gte"] = 1
         return selection
 
     def _evaluate(self, p):
@@ -151,7 +154,9 @@ class AmazonLeadsEngine:
             import json
             params["selection"] = json.dumps(params["selection"], separators=(",", ":"))
         response = requests.get(self.API + path, params=params, timeout=self.timeout)
-        response.raise_for_status()
+        if not response.ok:
+            detail = response.text.strip()[:500]
+            raise RuntimeError(f"Keepa HTTP {response.status_code}: {detail or 'request rejected'}")
         data = response.json()
         if data.get("error"):
             raise RuntimeError(f"Keepa: {data['error']}")
