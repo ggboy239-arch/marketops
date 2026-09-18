@@ -72,7 +72,10 @@ class AmazonLeads(commands.Cog):
                 if chart:
                     file = discord.File(io.BytesIO(chart), filename=f"keepa_{lead.asin}.png")
                     embed.set_image(url=f"attachment://keepa_{lead.asin}.png")
-                await channel.send(embed=embed, file=file, allowed_mentions=discord.AllowedMentions.none())
+                if file:
+                    await channel.send(embed=embed, file=file, allowed_mentions=discord.AllowedMentions.none())
+                else:
+                    await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
                 self.state.setdefault("seen", {})[lead.asin] = signature
                 posted += 1
             self.state["last_scan"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
