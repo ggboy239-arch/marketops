@@ -98,13 +98,9 @@ class AmazonLeadsEngine:
             "monthlySold_gte": 50,
             "current_COUNT_NEW_gte": 2,
             "current_COUNT_NEW_lte": 15,
+            "outOfStockCountAmazon90_gte": 1,
             "sort": [["salesRankDrops30", "desc"]],
         }
-        if oos:
-            selection["availabilityAmazon"] = [-1]
-        else:
-            selection["availabilityAmazon"] = [0]
-            selection["outOfStockCountAmazon90_gte"] = 1
         return selection
 
     def _evaluate(self, p):
