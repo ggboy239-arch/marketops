@@ -17,7 +17,7 @@ Required lead variables:
 - `AMAZON_LEAD_REVIEW_CHANNEL_ID`
 - `AMAZON_LEADS_CHECK_MINUTES=30`
 - `AMAZON_LEADS_MIN_PROFIT=10`
-- `AMAZON_LEADS_MIN_ROI=20`
+- `AMAZON_LEADS_MIN_ROI=40`
 - `AMAZON_LEADS_MAX_ROI=100`
 
 Copy the other existing MarketOps provider variables too, including `MARKETAUX_API_KEY`, `OPENAI_API_KEY`, and any provider keys used by the news and market cogs.
@@ -33,6 +33,16 @@ seller/product history in `data/storefront_state.json`. Optional controls are
 `STOREFRONT_PRODUCT_DELAY_SECONDS=20` (minimum 10). Products are requested one
 at a time so Keepa tokens can refill between items. A Keepa refill response
 pauses and resumes the same scan automatically.
+
+Both Keepa systems now use one process-wide gate so the storefront monitor and
+lead scanner cannot spend the same token pool simultaneously. Set
+`STOREFRONT_BASELINE_ON_ADD=true` to ignore a seller's existing catalog and
+alert only on listings discovered after the seller is added.
+
+The Tomorrow Setup journal uses `data/prediction_journal.db`. Create a Discord
+channel named `tomorrow-setup`, or override `TOMORROW_SETUP_CHANNEL`. Keep the
+Railway volume mounted at `/app/data` so forecasts and graded results survive
+deployments.
 
 ## Cost control
 

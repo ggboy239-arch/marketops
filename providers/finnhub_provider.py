@@ -21,6 +21,10 @@ class FinnhubProvider:
         "dollar": {"symbol": "DX-Y.NYB", "label": "💵 Dollar", "kind": "number"},
         "rates": {"symbol": "^TNX", "label": "🏦 US10Y", "kind": "yield"},
         "bitcoin": {"symbol": "BTC-USD", "label": "₿ Bitcoin", "kind": "crypto"},
+        "nikkei": {"symbol": "^N225", "label": "🇯🇵 Nikkei", "kind": "number"},
+        "hang_seng": {"symbol": "^HSI", "label": "🇭🇰 Hang Seng", "kind": "number"},
+        "dax": {"symbol": "^GDAXI", "label": "🇩🇪 DAX", "kind": "number"},
+        "ftse": {"symbol": "^FTSE", "label": "🇬🇧 FTSE", "kind": "number"},
     }
 
     def get_market_snapshot(self):

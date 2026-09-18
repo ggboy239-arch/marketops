@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands, tasks
 
 from market.amazon_leads_engine import AmazonLeadsEngine
+from market.keepa_coordinator import keepa_coordinator
 
 
 class AmazonLeads(commands.Cog):
@@ -69,7 +70,7 @@ class AmazonLeads(commands.Cog):
             if permission_issues:
                 self.last_error = "Discord permissions missing: " + "; ".join(permission_issues)
                 return 0
-            leads = await asyncio.to_thread(self.engine.scan)
+            leads = await keepa_coordinator.run("amazon-lead-scan", self.engine.scan)
             posted = 0
             for lead in leads:
                 signature = f"{lead.lane}:{lead.amazon_price}:{lead.exit_price}:{lead.roi}:{lead.sellers}"

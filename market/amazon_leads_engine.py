@@ -68,8 +68,14 @@ class AmazonLeadsEngine:
         self._candidate_cursor = 0
         self.last_scan_stats = {"discovered": 0, "products": 0, "qualified": 0}
         self.min_profit = float(os.getenv("AMAZON_LEADS_MIN_PROFIT", "10"))
-        self.min_roi = float(os.getenv("AMAZON_LEADS_MIN_ROI", "20"))
+        self.min_roi = float(os.getenv("AMAZON_LEADS_MIN_ROI", "40"))
         self.max_roi = float(os.getenv("AMAZON_LEADS_MAX_ROI", "100"))
+        self.preferred_roi = float(os.getenv("AMAZON_LEADS_PREFERRED_ROI", "50"))
+        self.max_rank = int(os.getenv("AMAZON_LEADS_MAX_RANK", "150000"))
+        self.min_monthly = int(os.getenv("AMAZON_LEADS_MIN_MONTHLY_SOLD", "30"))
+        self.min_drops30 = int(os.getenv("AMAZON_LEADS_MIN_DROPS_30", "10"))
+        self.min_sellers = int(os.getenv("AMAZON_LEADS_MIN_SELLERS", "3"))
+        self.max_sellers = int(os.getenv("AMAZON_LEADS_MAX_SELLERS", "20"))
         self.referral_rate = float(os.getenv("AMAZON_LEADS_REFERRAL_RATE", ".15"))
         self.fba_fee = float(os.getenv("AMAZON_LEADS_EST_FBA_FEE", "4.50"))
 
@@ -137,41 +143,41 @@ class AmazonLeadsEngine:
             "perPage": 50,
             "productType": [0],
             "rootCategory": [str(TOYS_ROOT)],
-            "current_COUNT_NEW_gte": 2,
-            "current_COUNT_NEW_lte": 20,
-            "monthlySold_gte": 20,
+            "current_COUNT_NEW_gte": self.min_sellers,
+            "current_COUNT_NEW_lte": self.max_sellers,
+            "monthlySold_gte": self.min_monthly,
         }
         if brands:
             selection["brand"] = brands
         if window == "30":
             selection.update({
-                "current_SALES_gte": 50000,
-                "current_SALES_lte": 250000,
-                "salesRankDrops30_gte": 5,
+                "current_SALES_gte": 1,
+                "current_SALES_lte": self.max_rank,
+                "salesRankDrops30_gte": self.min_drops30,
                 "outOfStockCountAmazon30_gte": 1,
                 "sort": [["salesRankDrops30", "desc"]],
             })
         elif window == "90":
             selection.update({
-                "avg90_SALES_gte": 50000,
-                "avg90_SALES_lte": 250000,
-                "salesRankDrops90_gte": 15,
+                "avg90_SALES_gte": 1,
+                "avg90_SALES_lte": self.max_rank,
+                "salesRankDrops90_gte": self.min_drops30 * 3,
                 "outOfStockCountAmazon90_gte": 1,
                 "sort": [["salesRankDrops90", "desc"]],
             })
         elif window == "180":
             selection.update({
-                "avg180_SALES_gte": 50000,
-                "avg180_SALES_lte": 250000,
-                "salesRankDrops180_gte": 25,
+                "avg180_SALES_gte": 1,
+                "avg180_SALES_lte": self.max_rank,
+                "salesRankDrops180_gte": self.min_drops30 * 5,
                 "buyBoxStatsAmazon180_lte": 40,
                 "sort": [["salesRankDrops180", "desc"]],
             })
         elif window == "instock":
             selection.update({
                 "current_AMAZON_gte": 1,
-                "current_SALES_gte": 50000,
-                "current_SALES_lte": 250000,
+                "current_SALES_gte": 1,
+                "current_SALES_lte": self.max_rank,
                 "outOfStockCountAmazon90_gte": 1,
                 "salesRankDrops30_gte": 3,
                 "sort": [["salesRankDrops30", "desc"]],
@@ -179,16 +185,16 @@ class AmazonLeadsEngine:
         elif window == "oos":
             selection.update({
                 "current_AMAZON_lte": -1,
-                "current_SALES_gte": 50000,
-                "current_SALES_lte": 250000,
-                "salesRankDrops30_gte": 5,
+                "current_SALES_gte": 1,
+                "current_SALES_lte": self.max_rank,
+                "salesRankDrops30_gte": self.min_drops30,
                 "sort": [["monthlySold", "desc"]],
             })
         else:
             selection.update({
-                "current_SALES_gte": 50000,
-                "current_SALES_lte": 250000,
-                "salesRankDrops30_gte": 3,
+                "current_SALES_gte": 1,
+                "current_SALES_lte": self.max_rank,
+                "salesRankDrops30_gte": self.min_drops30,
                 "sort": [["monthlySold", "desc"]],
             })
         return selection
@@ -219,14 +225,17 @@ class AmazonLeadsEngine:
         monthly = self._positive(p.get("monthlySold"))
         drops = self._positive(stats.get("salesRankDrops30"))
         oos90 = self._positive((stats.get("outOfStockPercentage90") or [None])[AMAZON])
-        qualifies = profit is not None and profit >= self.min_profit and roi is not None and self.min_roi <= roi <= self.max_roi
+        demand_ok = (rank is None or rank <= self.max_rank) and (drops is None or drops >= self.min_drops30)
+        competition_ok = sellers is None or self.min_sellers <= sellers <= self.max_sellers
+        qualifies = profit is not None and profit >= self.min_profit and roi is not None and self.min_roi <= roi <= self.max_roi and demand_ok and competition_ok
         if not qualifies:
             return None
         if amazon:
             lane, reason = "hold", "Amazon is in stock; modeled exit meets the profit and ROI thresholds."
         else:
             lane, reason = "pressure", "Amazon is out of stock; historical Amazon buy and modeled exit meet the profit and ROI thresholds."
-        score = min(100, (25 if not amazon else 15) + min(monthly or 0, 200) // 5 + min(drops or 0, 30) + (20 if qualifies else 0))
+        preferred_bonus = 10 if roi is not None and roi >= self.preferred_roi else 0
+        score = min(100, (25 if not amazon else 10) + min(monthly or 0, 200) // 5 + min(drops or 0, 30) + preferred_bonus + (15 if qualifies else 0))
         return Lead(str(p.get("asin")), title[:250], brand or "Known licensed brand", lane, amazon, exit_price, profit, roi, rank, monthly, drops, sellers, oos90, score, reason, ", ".join(p.get("_lead_methods") or ["Keepa discovery"]), self._history(p.get("csv")))
 
     def _oos_prices(self, csv):
@@ -391,4 +400,3 @@ class AmazonLeadsEngine:
     @staticmethod
     def _positive(value):
         return int(value) if isinstance(value, (int, float)) and value >= 0 else None
-
