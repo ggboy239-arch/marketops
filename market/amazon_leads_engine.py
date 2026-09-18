@@ -213,12 +213,12 @@ class AmazonLeadsEngine:
         drops = self._positive(stats.get("salesRankDrops30"))
         oos90 = self._positive((stats.get("outOfStockPercentage90") or [None])[AMAZON])
         qualifies = profit is not None and profit >= self.min_profit and roi is not None and self.min_roi <= roi <= self.max_roi
-        if amazon and qualifies:
-            lane, reason = "hold", "Amazon is in stock; modeled exit meets the hold thresholds."
-        elif not amazon and (monthly or 0) >= 50:
-            lane, reason = "pressure", "Amazon is out of stock; watch for an Amazon restock at or below the max buy."
+        if not qualifies:
+            return None
+        if amazon:
+            lane, reason = "hold", "Amazon is in stock; modeled exit meets the profit and ROI thresholds."
         else:
-            lane, reason = "review", "Demand/stock pressure is promising, but price history needs manual review."
+            lane, reason = "pressure", "Amazon is out of stock; historical Amazon buy and modeled exit meet the profit and ROI thresholds."
         score = min(100, (25 if not amazon else 15) + min(monthly or 0, 200) // 5 + min(drops or 0, 30) + (20 if qualifies else 0))
         return Lead(str(p.get("asin")), title[:250], brand or "Known licensed brand", lane, amazon, exit_price, profit, roi, rank, monthly, drops, sellers, oos90, score, reason, ", ".join(p.get("_lead_methods") or ["Keepa discovery"]), self._history(p.get("csv")))
 
