@@ -181,6 +181,13 @@ async def command_channel_check(ctx):
     command_name = ctx.command.name.lower()
     invoked_name = (ctx.invoked_with or command_name).lower()
 
+    # Group subcommands keep their own short name (for example, both
+    # `!add TSLA` and `!storefront add ...` have a command named `add`).
+    # Check the root group before applying the standalone command routing.
+    root_parent = getattr(ctx.command, "root_parent", None)
+    if root_parent is not None and root_parent.name.lower() == "storefront":
+        return True
+
     if command_name in HELP_COMMANDS or invoked_name in HELP_COMMANDS:
         return True
 
