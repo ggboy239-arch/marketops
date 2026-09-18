@@ -43,7 +43,10 @@ class AmazonLeads(commands.Cog):
         if action.lower() in {"now", "scan", "test"}:
             await ctx.send("🔎 Running the Keepa Amazon lead scan now…")
             posted = await self._run_scan(force=True)
-            await ctx.send(f"✅ Scan finished; {posted} lead(s) posted.")
+            if self.last_error != "None":
+                await ctx.send(f"❌ Scan failed: {self.last_error}")
+            else:
+                await ctx.send(f"✅ Scan finished; {posted} lead(s) posted.")
             return
         configured = sum(bool(v.strip()) for v in self.channel_ids.values())
         await ctx.send(
@@ -94,6 +97,7 @@ class AmazonLeads(commands.Cog):
         embed.add_field(name="Max buy @ target ROI", value=money(max_buy), inline=True)
         embed.add_field(name="Velocity", value=f"{number(lead.monthly_sold)} monthly • {number(lead.drops30)} drops/30d", inline=True)
         embed.add_field(name="Rank / sellers", value=f"{number(lead.rank)} / {number(lead.sellers)}", inline=True)
+        embed.add_field(name="Lead methods", value=lead.methods[:1000], inline=False)
         embed.add_field(name="Why it surfaced", value=lead.reason, inline=False)
         embed.add_field(name="Review", value=f"[Amazon]({lead.amazon_url}) • [Keepa]({lead.keepa_url})", inline=False)
         embed.set_image(url=lead.chart_url)
