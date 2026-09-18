@@ -76,23 +76,21 @@ class AmazonLeadsEngine:
             raise RuntimeError("KEEPA_API_KEY is missing")
         discovered = {}
         pools = []
-        windows = (
+        rotating = (
             ("30-day rank + stock cycling", self._selection("30")),
             ("90-day rank + stock cycling", self._selection("90")),
             ("180-day sustained demand", self._selection("180")),
-        )
-        brand_groups = (
             ("Mattel / Barbie / Hot Wheels", self._selection("brands", ["Mattel", "Barbie", "Hot Wheels", "Fisher-Price"])),
             ("Other approved toy brands", self._selection("brands", ["Hasbro", "Jazwares", "Spin Master", "Funko", "Loungefly", "MGA Entertainment", "Moose Toys", "Just Play", "NECA", "McFarlane Toys", "Ravensburger", "Crayola"])),
         )
-        # Three finder calls plus up to 20 product histories stays below the
-        # 30-minute token refill budget. Windows and brand families rotate.
+        # Every scan covers Amazon both in and out of stock. The final query
+        # rotates time-window and brand methods to stay within the token budget.
         rotation = self._scan_number
         self._scan_number += 1
         strategies = (
-            windows[rotation % len(windows)],
+            ("Amazon in stock + recent stock cycling", self._selection("instock")),
             ("Amazon currently OOS", self._selection("oos")),
-            brand_groups[rotation % len(brand_groups)],
+            rotating[rotation % len(rotating)],
         )
         for label, selection in strategies:
             payload = self._get("/query", selection=selection)
@@ -141,35 +139,49 @@ class AmazonLeadsEngine:
             selection["brand"] = brands
         if window == "30":
             selection.update({
-                "current_SALES_lte": 175000,
+                "current_SALES_gte": 50000,
+                "current_SALES_lte": 250000,
                 "salesRankDrops30_gte": 5,
                 "outOfStockCountAmazon30_gte": 1,
                 "sort": [["salesRankDrops30", "desc"]],
             })
         elif window == "90":
             selection.update({
-                "avg90_SALES_lte": 175000,
+                "avg90_SALES_gte": 50000,
+                "avg90_SALES_lte": 250000,
                 "salesRankDrops90_gte": 15,
                 "outOfStockCountAmazon90_gte": 1,
                 "sort": [["salesRankDrops90", "desc"]],
             })
         elif window == "180":
             selection.update({
-                "avg180_SALES_lte": 200000,
+                "avg180_SALES_gte": 50000,
+                "avg180_SALES_lte": 250000,
                 "salesRankDrops180_gte": 25,
                 "buyBoxStatsAmazon180_lte": 40,
                 "sort": [["salesRankDrops180", "desc"]],
             })
+        elif window == "instock":
+            selection.update({
+                "current_AMAZON_gte": 1,
+                "current_SALES_gte": 50000,
+                "current_SALES_lte": 250000,
+                "outOfStockCountAmazon90_gte": 1,
+                "salesRankDrops30_gte": 3,
+                "sort": [["salesRankDrops30", "desc"]],
+            })
         elif window == "oos":
             selection.update({
                 "current_AMAZON_lte": -1,
-                "current_SALES_lte": 200000,
+                "current_SALES_gte": 50000,
+                "current_SALES_lte": 250000,
                 "salesRankDrops30_gte": 5,
                 "sort": [["monthlySold", "desc"]],
             })
         else:
             selection.update({
-                "current_SALES_lte": 200000,
+                "current_SALES_gte": 50000,
+                "current_SALES_lte": 250000,
                 "salesRankDrops30_gte": 3,
                 "sort": [["monthlySold", "desc"]],
             })
