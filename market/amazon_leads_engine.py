@@ -30,6 +30,7 @@ class Lead:
     amazon_oos90: int | None
     score: int
     reason: str
+    methods: str
 
     @property
     def amazon_url(self):
@@ -69,38 +70,72 @@ class AmazonLeadsEngine:
     def scan(self):
         if not self.key:
             raise RuntimeError("KEEPA_API_KEY is missing")
-        asins = []
-        for selection in (self._selection(True), self._selection(False)):
+        discovered = {}
+        strategies = (
+            ("30-day rank + stock cycling", self._selection("30")),
+            ("90-day rank + stock cycling", self._selection("90")),
+            ("180-day sustained demand", self._selection("180")),
+            ("Amazon currently OOS", self._selection("oos")),
+        )
+        for label, selection in strategies:
             payload = self._get("/query", selection=selection)
-            asins.extend(payload.get("asinList") or [])
-            if len(dict.fromkeys(asins)) >= self.max_products:
-                break
-        asins = list(dict.fromkeys(asins))[: self.max_products]
+            for asin in payload.get("asinList") or []:
+                discovered.setdefault(asin, []).append(label)
+
+        asins = list(discovered)[: self.max_products]
         if not asins:
             return []
         products = self._get(
-            "/product", asin=",".join(asins), stats=180, history=0,
-            offers=20, buybox=1,
+            "/product", asin=",".join(asins), stats=180, history=0, buybox=1,
         ).get("products") or []
-        leads = [lead for product in products if (lead := self._evaluate(product))]
+        leads = []
+        for product in products:
+            product["_lead_methods"] = discovered.get(product.get("asin"), [])
+            lead = self._evaluate(product)
+            if lead:
+                leads.append(lead)
         return sorted(leads, key=lambda x: (x.score, x.roi or 0, x.monthly_sold or 0), reverse=True)
 
-    def _selection(self, oos):
-        # Keepa's /query endpoint expects ProductFinderRequest field names,
-        # not the nested filter objects exported by the website UI.
+    def _selection(self, window):
+        # Product Finder requires perPage >= 50. We request a valid page, then
+        # cap product-detail calls separately with AMAZON_LEADS_MAX_PRODUCTS.
         selection = {
             "page": 0,
-            "perPage": min(self.max_products, 50),
+            "perPage": 50,
             "productType": [0],
             "rootCategory": [str(TOYS_ROOT)],
-            "current_SALES_lte": 150000,
-            "salesRankDrops30_gte": 10,
-            "monthlySold_gte": 50,
             "current_COUNT_NEW_gte": 2,
-            "current_COUNT_NEW_lte": 15,
-            "outOfStockCountAmazon90_gte": 1,
-            "sort": [["salesRankDrops30", "desc"]],
+            "current_COUNT_NEW_lte": 20,
+            "monthlySold_gte": 20,
         }
+        if window == "30":
+            selection.update({
+                "current_SALES_lte": 175000,
+                "salesRankDrops30_gte": 5,
+                "outOfStockCountAmazon30_gte": 1,
+                "sort": [["salesRankDrops30", "desc"]],
+            })
+        elif window == "90":
+            selection.update({
+                "avg90_SALES_lte": 175000,
+                "salesRankDrops90_gte": 15,
+                "outOfStockCountAmazon90_gte": 1,
+                "sort": [["salesRankDrops90", "desc"]],
+            })
+        elif window == "180":
+            selection.update({
+                "avg180_SALES_lte": 200000,
+                "salesRankDrops180_gte": 25,
+                "buyBoxStatsAmazon180_lte": 40,
+                "sort": [["salesRankDrops180", "desc"]],
+            })
+        else:
+            selection.update({
+                "current_AMAZON_lte": -1,
+                "current_SALES_lte": 200000,
+                "salesRankDrops30_gte": 5,
+                "sort": [["monthlySold", "desc"]],
+            })
         return selection
 
     def _evaluate(self, p):
@@ -136,7 +171,7 @@ class AmazonLeadsEngine:
         else:
             lane, reason = "review", "Demand/stock pressure is promising, but price history needs manual review."
         score = min(100, (25 if not amazon else 15) + min(monthly or 0, 200) // 5 + min(drops or 0, 30) + (20 if qualifies else 0))
-        return Lead(str(p.get("asin")), title[:250], brand or "Known licensed brand", lane, amazon, exit_price, profit, roi, rank, monthly, drops, sellers, oos90, score, reason)
+        return Lead(str(p.get("asin")), title[:250], brand or "Known licensed brand", lane, amazon, exit_price, profit, roi, rank, monthly, drops, sellers, oos90, score, reason, ", ".join(p.get("_lead_methods") or ["Keepa discovery"]))
 
     def max_buy_price(self, lead):
         if not lead.exit_price:
