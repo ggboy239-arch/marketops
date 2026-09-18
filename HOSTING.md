@@ -26,6 +26,11 @@ Copy the other existing MarketOps provider variables too, including `MARKETAUX_A
 
 MarketOps stores deduplication state under `data/`. To preserve it across deployments, add a Railway Volume mounted at `/app/data`.
 
+The Amazon storefront monitor uses the existing `KEEPA_API_KEY` and saves its
+seller/product history in `data/storefront_state.json`. Optional controls are
+`STOREFRONT_CHECK_MINUTES=120` (minimum 30) and
+`STOREFRONT_PRODUCTS_PER_SCAN=20` (maximum 20).
+
 ## Cost control
 
 Use Railway's usage page to set a monthly alert or hard limit. A hard limit stops the bot when reached.

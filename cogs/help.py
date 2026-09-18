@@ -177,6 +177,18 @@ class MarketOpsHelp(commands.Cog):
         )
 
         embed.add_field(
+            name="🛒 Amazon Storefront Review",
+            value=(
+                "`!storefront add <URL or seller ID>` — watch a public Amazon storefront in the current channel\n"
+                "`!storefront scan` — load the next batch of new products\n"
+                "`!storefront list` — show watched sellers\n"
+                "`!storefront remove <seller ID>` — stop watching a seller\n"
+                "Posts are raw products for manual review; they are not profit or ROI claims."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
             name="🔑 Admin / Owner",
             value=(
                 "Admin keys/tickets: `#admin-keys`\n"
