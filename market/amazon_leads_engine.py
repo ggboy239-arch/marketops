@@ -65,6 +65,7 @@ class AmazonLeadsEngine:
         self.timeout = int(os.getenv("KEEPA_TIMEOUT_SECONDS", "25"))
         self.max_products = max(10, min(20, int(os.getenv("AMAZON_LEADS_MAX_PRODUCTS", "20"))))
         self._scan_number = 0
+        self.last_scan_stats = {"discovered": 0, "products": 0, "qualified": 0}
         self.min_profit = float(os.getenv("AMAZON_LEADS_MIN_PROFIT", "10"))
         self.min_roi = float(os.getenv("AMAZON_LEADS_MIN_ROI", "20"))
         self.max_roi = float(os.getenv("AMAZON_LEADS_MAX_ROI", "100"))
@@ -111,6 +112,7 @@ class AmazonLeadsEngine:
             if len(asins) >= self.max_products:
                 break
         if not asins:
+            self.last_scan_stats = {"discovered": len(discovered), "products": 0, "qualified": 0}
             return []
         products = self._get(
             "/product", asin=",".join(asins), stats=180, history=1, buybox=1,
@@ -121,6 +123,7 @@ class AmazonLeadsEngine:
             lead = self._evaluate(product)
             if lead:
                 leads.append(lead)
+        self.last_scan_stats = {"discovered": len(discovered), "products": len(products), "qualified": len(leads)}
         return self._diversified_sort(leads)
 
     def _selection(self, window, brands=None):
@@ -198,10 +201,11 @@ class AmazonLeadsEngine:
         avg90 = stats.get("avg90") or []
         avg180 = stats.get("avg180") or []
         amazon = self._price(self._at(current, AMAZON))
-        exits = [self._price(self._at(a, BUY_BOX_SHIPPING)) for a in (avg90, avg180)]
-        exits = [x for x in exits if x]
-        exit_price = round(median(exits), 2) if exits else self._price(self._at(current, BUY_BOX_SHIPPING))
-        historic_buy = self._price(self._at(avg90, AMAZON)) or self._price(self._at(avg180, AMAZON))
+        oos_exit, history_buy = self._oos_prices(p.get("csv"))
+        fallback_exits = [self._price(self._at(a, BUY_BOX_SHIPPING)) for a in (avg90, avg180)]
+        fallback_exits = [x for x in fallback_exits if x]
+        exit_price = oos_exit or (round(median(fallback_exits), 2) if fallback_exits else self._price(self._at(current, BUY_BOX_SHIPPING)))
+        historic_buy = history_buy or self._price(self._at(avg90, AMAZON)) or self._price(self._at(avg180, AMAZON))
         buy = amazon or historic_buy
         profit = roi = None
         if buy and exit_price and exit_price > buy:
@@ -221,6 +225,52 @@ class AmazonLeadsEngine:
             lane, reason = "pressure", "Amazon is out of stock; historical Amazon buy and modeled exit meet the profit and ROI thresholds."
         score = min(100, (25 if not amazon else 15) + min(monthly or 0, 200) // 5 + min(drops or 0, 30) + (20 if qualifies else 0))
         return Lead(str(p.get("asin")), title[:250], brand or "Known licensed brand", lane, amazon, exit_price, profit, roi, rank, monthly, drops, sellers, oos90, score, reason, ", ".join(p.get("_lead_methods") or ["Keepa discovery"]), self._history(p.get("csv")))
+
+    def _oos_prices(self, csv):
+        csv = csv or []
+        amazon_raw = self._at(csv, AMAZON)
+        box_raw = self._at(csv, BUY_BOX_SHIPPING)
+        if not isinstance(amazon_raw, list) or not isinstance(box_raw, list):
+            return None, None
+
+        epoch = datetime(2011, 1, 1, tzinfo=timezone.utc)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=180)
+
+        def events(raw):
+            result = []
+            for index in range(0, len(raw) - 1, 2):
+                minute, value = raw[index], raw[index + 1]
+                if isinstance(minute, (int, float)) and isinstance(value, (int, float)):
+                    result.append((epoch + timedelta(minutes=minute), value))
+            return result
+
+        amazon_events = events(amazon_raw)
+        box_events = events(box_raw)
+        if not amazon_events or not box_events:
+            return None, None
+
+        amazon_index = box_index = 0
+        amazon_state = box_state = -1
+        in_stock_buys = []
+        oos_boxes = []
+        day = cutoff.replace(hour=23, minute=59, second=59, microsecond=0)
+        now = datetime.now(timezone.utc)
+        while day <= now:
+            while amazon_index < len(amazon_events) and amazon_events[amazon_index][0] <= day:
+                amazon_state = amazon_events[amazon_index][1]
+                amazon_index += 1
+            while box_index < len(box_events) and box_events[box_index][0] <= day:
+                box_state = box_events[box_index][1]
+                box_index += 1
+            if amazon_state > 0:
+                in_stock_buys.append(amazon_state / 100)
+            elif box_state > 0:
+                oos_boxes.append(box_state / 100)
+            day += timedelta(days=1)
+
+        exit_price = round(median(oos_boxes), 2) if oos_boxes else None
+        buy_price = round(median(in_stock_buys), 2) if in_stock_buys else None
+        return exit_price, buy_price
 
     def _diversified_sort(self, leads):
         ranked = sorted(leads, key=lambda x: (x.score, x.roi or 0, x.monthly_sold or 0), reverse=True)
