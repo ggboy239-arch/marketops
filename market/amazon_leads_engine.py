@@ -65,6 +65,7 @@ class AmazonLeadsEngine:
         self.timeout = int(os.getenv("KEEPA_TIMEOUT_SECONDS", "25"))
         self.max_products = max(10, min(20, int(os.getenv("AMAZON_LEADS_MAX_PRODUCTS", "20"))))
         self._scan_number = 0
+        self._candidate_cursor = 0
         self.last_scan_stats = {"discovered": 0, "products": 0, "qualified": 0}
         self.min_profit = float(os.getenv("AMAZON_LEADS_MIN_PROFIT", "10"))
         self.min_roi = float(os.getenv("AMAZON_LEADS_MIN_ROI", "20"))
@@ -102,18 +103,20 @@ class AmazonLeadsEngine:
 
         # Round-robin across strategies so one dominant brand cannot consume
         # every product-detail slot.
-        asins = []
+        ordered_asins = []
         for index in range(50):
             for pool in pools:
-                if index < len(pool) and pool[index] not in asins:
-                    asins.append(pool[index])
-                    if len(asins) >= self.max_products:
-                        break
-            if len(asins) >= self.max_products:
-                break
-        if not asins:
+                if index < len(pool) and pool[index] not in ordered_asins:
+                    ordered_asins.append(pool[index])
+        if not ordered_asins:
             self.last_scan_stats = {"discovered": len(discovered), "products": 0, "qualified": 0}
             return []
+
+        # Advance through the entire discovered pool instead of repeatedly
+        # analyzing the first batch. Wrap at the end for continuous monitoring.
+        start = self._candidate_cursor % len(ordered_asins)
+        asins = (ordered_asins + ordered_asins)[start:start + self.max_products]
+        self._candidate_cursor = (start + len(asins)) % len(ordered_asins)
         products = self._get(
             "/product", asin=",".join(asins), stats=180, history=1, buybox=1,
         ).get("products") or []
@@ -123,7 +126,7 @@ class AmazonLeadsEngine:
             lead = self._evaluate(product)
             if lead:
                 leads.append(lead)
-        self.last_scan_stats = {"discovered": len(discovered), "products": len(products), "qualified": len(leads)}
+        self.last_scan_stats = {"discovered": len(discovered), "products": len(products), "qualified": len(leads), "batch_start": start, "next_cursor": self._candidate_cursor}
         return self._diversified_sort(leads)
 
     def _selection(self, window, brands=None):
