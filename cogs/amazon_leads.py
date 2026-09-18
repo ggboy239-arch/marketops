@@ -54,7 +54,8 @@ class AmazonLeads(commands.Cog):
         funnel = (
             f"Discovered: {stats.get('discovered', 'N/A')} • "
             f"Analyzed: {stats.get('products', 'N/A')} • "
-            f"Qualified: {stats.get('qualified', 'N/A')}"
+            f"Qualified: {stats.get('qualified', 'N/A')} • "
+            f"Next batch starts at: {stats.get('next_cursor', 'N/A')}"
         )
         await ctx.send(
             f"**Amazon lead scanner**: every {self.minutes} min • {configured}/3 channels configured\n"
