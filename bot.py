@@ -100,6 +100,10 @@ MARKET_CHANGE_COMMANDS = [
     "whystatus", "marketwhystatus", "changestatus",
     "whyhelp", "marketwhyhelp", "changehelp",
 ]
+TOMORROW_COMMANDS = [
+    "tomorrow", "tomorrowsetup", "nextday", "reviewsetup", "reviewtomorrow",
+    "setupreview", "journal", "predictionjournal",
+]
 
 SOCIAL_STATUS_COMMANDS = ["social", "socialstatus", "xstatus"]
 X_NEWS_COMMANDS = ["xnews", "xposts", "twitternews"]
@@ -129,6 +133,7 @@ COMMAND_CHANNELS = {
     **{command: ["stock-move-lessons", "watchlist", "market-school", "owner-audit"] for command in MOVE_LEARNING_COMMANDS},
     **{command: ["federal-power-briefs", "owner-audit", "market-school"] for command in GOV_POWER_COMMANDS},
     **{command: ["market-change-explainers", "market-dashboard", "market-school", "owner-audit"] for command in MARKET_CHANGE_COMMANDS},
+    **{command: ["tomorrow-setup", "market-school", "market-dashboard"] for command in TOMORROW_COMMANDS},
     **{command: ["x-news", "video-news", "trending-news"] for command in SOCIAL_STATUS_COMMANDS},
     **{command: ["x-news"] for command in X_NEWS_COMMANDS},
     **{command: ["video-news"] for command in VIDEO_NEWS_COMMANDS},
@@ -260,6 +265,7 @@ async def load():
     await bot.load_extension("cogs.calendar")
     await bot.load_extension("cogs.amazon_leads")
     await bot.load_extension("cogs.storefronts")
+    await bot.load_extension("cogs.tomorrow_setup")
 
 
 async def main():

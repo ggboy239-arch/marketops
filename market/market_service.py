@@ -65,6 +65,10 @@ class MarketService:
                 "dollar": self._format_asset(snapshot["dollar"]),
                 "rates": self._format_asset(snapshot["rates"]),
                 "bitcoin": self._format_asset(snapshot["bitcoin"]),
+                "nikkei": self._format_asset(snapshot["nikkei"]),
+                "hang_seng": self._format_asset(snapshot["hang_seng"]),
+                "dax": self._format_asset(snapshot["dax"]),
+                "ftse": self._format_asset(snapshot["ftse"]),
             },
             "raw": snapshot,
         }

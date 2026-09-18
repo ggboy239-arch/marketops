@@ -69,6 +69,16 @@ class Market(commands.Cog):
         embed.add_field(name="💵 Dollar", value=dashboard["assets"]["dollar"], inline=True)
         embed.add_field(name="🏦 US10Y", value=dashboard["assets"]["rates"], inline=True)
         embed.add_field(name="₿ Bitcoin", value=dashboard["assets"]["bitcoin"], inline=True)
+        embed.add_field(
+            name="🌍 Overseas Markets",
+            value=(
+                f'{dashboard["assets"]["nikkei"]}\n\n'
+                f'{dashboard["assets"]["hang_seng"]}\n\n'
+                f'{dashboard["assets"]["dax"]}\n\n'
+                f'{dashboard["assets"]["ftse"]}'
+            )[:1024],
+            inline=False,
+        )
         embed.add_field(name="📰 Today's Theme", value=dashboard["theme"], inline=True)
         embed.add_field(name="🏆 Equity Leader", value=dashboard["leader"], inline=True)
         embed.add_field(name="📉 Equity Weakest", value=dashboard["loser"], inline=True)

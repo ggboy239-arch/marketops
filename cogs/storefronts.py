@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands, tasks
 
 from market.storefront_engine import StorefrontEngine
+from market.keepa_coordinator import keepa_coordinator
 
 
 class Storefronts(commands.Cog):
@@ -57,18 +58,21 @@ class Storefronts(commands.Cog):
         await ctx.send("🔎 Reading that Amazon storefront…")
         try:
             seller_id = await asyncio.to_thread(self.engine.resolve_seller_id, value)
-            name, asins = await asyncio.to_thread(self.engine.storefront, seller_id)
+            name, asins = await self._keepa_call(self.engine.storefront, seller_id)
             stores = self.state.setdefault("stores", {})
             existing = stores.get(seller_id, {})
+            baseline = os.getenv("STOREFRONT_BASELINE_ON_ADD", "false").lower() in {"1", "true", "yes", "on"}
+            initial_seen = existing.get("seen", []) or (asins if baseline else [])
             stores[seller_id] = {
-                "name": name, "channel_id": str(ctx.channel.id), "seen": existing.get("seen", []),
+                "name": name, "channel_id": str(ctx.channel.id), "seen": initial_seen,
                 "added_at": existing.get("added_at") or datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "last_found": len(asins),
+                "last_found": len(asins), "last_success": None, "last_error": None,
             }
             self._save_state()
             await ctx.send(
                 f"✅ Added **{name}** (`{seller_id}`) with {len(asins)} public product(s).\n"
-                f"Products will begin loading automatically in {ctx.channel.mention}."
+                f"Products will begin loading automatically in {ctx.channel.mention}.\n"
+                f"Mode: {'future listings only' if baseline else 'backfill, then future listings'}"
             )
         except Exception as error:
             await ctx.send(f"❌ Could not add storefront: {str(error)[:500]}")
@@ -83,7 +87,8 @@ class Storefronts(commands.Cog):
         for seller_id, store in stores.items():
             channel_id = store.get("channel_id")
             channel = self.bot.get_channel(int(channel_id)) if str(channel_id).isdigit() else None
-            lines.append(f"• **{store.get('name', seller_id)}** — `{seller_id}` — {len(store.get('seen', []))} posted — {channel.mention if channel else 'channel unavailable'}")
+            health = "OK" if not store.get("last_error") else f"ERROR: {store['last_error'][:80]}"
+            lines.append(f"• **{store.get('name', seller_id)}** — `{seller_id}` — {len(store.get('seen', []))} posted — {channel.mention if channel else 'channel unavailable'} — {health}")
         await ctx.send("**Watched storefronts**\n" + "\n".join(lines))
 
     @storefront.command(name="scan", aliases=["now"])
@@ -131,30 +136,15 @@ class Storefronts(commands.Cog):
             self.last_error = "None"
             try:
                 for seller_id, store in self.state.get("stores", {}).items():
-                    name, asins = await self._keepa_call(self.engine.storefront, seller_id)
-                    store["name"] = name; store["last_found"] = len(asins)
-                    seen = set(store.get("seen", []))
-                    pending = [asin for asin in asins if asin not in seen]
-                    attempted = pending[: self.engine.batch_size]
-                    channel_id = str(store.get("channel_id", ""))
-                    channel = self.bot.get_channel(int(channel_id)) if channel_id.isdigit() else None
-                    if channel is None:
-                        raise RuntimeError(f"Saved Discord channel is unavailable for {name}.")
-                    permissions = channel.permissions_for(channel.guild.me)
-                    if not permissions.send_messages or not permissions.embed_links:
-                        raise RuntimeError(f"Discord permissions missing in #{channel.name}: Send Messages and Embed Links are required.")
-                    for index, asin in enumerate(attempted):
-                        products = await self._keepa_call(self.engine.products, [asin])
-                        for product in products:
-                            await channel.send(embed=self._embed(product, name, seller_id), allowed_mentions=discord.AllowedMentions.none())
-                            total += 1
-                        # Save after every ASIN so a restart continues where it
-                        # stopped. Omitted/deleted ASINs cannot block the queue.
-                        seen.add(asin)
-                        store["seen"] = sorted(seen)
-                        self._save_state()
-                        if index < len(attempted) - 1:
-                            await asyncio.sleep(self.product_delay)
+                    try:
+                        total += await self._scan_store(seller_id, store)
+                        store["last_success"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                        store["last_error"] = None
+                    except Exception as store_error:
+                        store["last_error"] = str(store_error)[:240]
+                        self.last_error = f"One or more storefronts failed; check !storefront list"
+                        print(f"❌ Storefront {seller_id} error: {store_error!r}")
+                    self._save_state()
                 self.state["last_scan"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 self._save_state()
             except Exception as error:
@@ -162,11 +152,42 @@ class Storefronts(commands.Cog):
                 print(f"❌ Storefront scan error: {error!r}")
             return total
 
+    async def _scan_store(self, seller_id, store):
+        name, asins = await self._keepa_call(self.engine.storefront, seller_id)
+        store["name"] = name
+        store["last_found"] = len(asins)
+        seen = set(store.get("seen", []))
+        previous_inventory = set(store.get("last_inventory", []))
+        relisted = set(store.get("removed", [])) & set(asins)
+        attempted = [asin for asin in asins if asin not in seen or asin in relisted][: self.engine.batch_size]
+        channel_id = str(store.get("channel_id", ""))
+        channel = self.bot.get_channel(int(channel_id)) if channel_id.isdigit() else None
+        if channel is None:
+            raise RuntimeError(f"Saved Discord channel is unavailable for {name}.")
+        permissions = channel.permissions_for(channel.guild.me)
+        if not permissions.send_messages or not permissions.embed_links:
+            raise RuntimeError(f"Discord permissions missing in #{channel.name}: Send Messages and Embed Links are required.")
+        posted = 0
+        for index, asin in enumerate(attempted):
+            products = await self._keepa_call(self.engine.products, [asin])
+            for product in products:
+                await channel.send(embed=self._embed(product, name, seller_id), allowed_mentions=discord.AllowedMentions.none())
+                posted += 1
+            seen.add(asin)
+            relisted.discard(asin)
+            store["seen"] = sorted(seen)
+            self._save_state()
+            if index < len(attempted) - 1:
+                await asyncio.sleep(self.product_delay)
+        store["removed"] = sorted((set(store.get("removed", [])) | (previous_inventory - set(asins))) - set(asins))
+        store["last_inventory"] = asins
+        return posted
+
     async def _keepa_call(self, function, *args):
         """Wait for Keepa's stated refill time and resume the same operation."""
         for attempt in range(3):
             try:
-                return await asyncio.to_thread(function, *args)
+                return await keepa_coordinator.run("storefront-monitor", function, *args)
             except RuntimeError as error:
                 match = re.search(r"Retry in about (\d+) minute", str(error), re.I)
                 if not match or attempt == 2:
