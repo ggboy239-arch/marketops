@@ -63,7 +63,8 @@ class AmazonLeadsEngine:
     def __init__(self):
         self.key = os.getenv("KEEPA_API_KEY", "").strip()
         self.timeout = int(os.getenv("KEEPA_TIMEOUT_SECONDS", "25"))
-        self.max_products = max(40, int(os.getenv("AMAZON_LEADS_MAX_PRODUCTS", "40")))
+        self.max_products = max(10, min(20, int(os.getenv("AMAZON_LEADS_MAX_PRODUCTS", "20"))))
+        self._scan_number = 0
         self.min_profit = float(os.getenv("AMAZON_LEADS_MIN_PROFIT", "10"))
         self.min_roi = float(os.getenv("AMAZON_LEADS_MIN_ROI", "20"))
         self.max_roi = float(os.getenv("AMAZON_LEADS_MAX_ROI", "100"))
@@ -75,13 +76,23 @@ class AmazonLeadsEngine:
             raise RuntimeError("KEEPA_API_KEY is missing")
         discovered = {}
         pools = []
-        strategies = (
+        windows = (
             ("30-day rank + stock cycling", self._selection("30")),
             ("90-day rank + stock cycling", self._selection("90")),
             ("180-day sustained demand", self._selection("180")),
-            ("Amazon currently OOS", self._selection("oos")),
+        )
+        brand_groups = (
             ("Mattel / Barbie / Hot Wheels", self._selection("brands", ["Mattel", "Barbie", "Hot Wheels", "Fisher-Price"])),
             ("Other approved toy brands", self._selection("brands", ["Hasbro", "Jazwares", "Spin Master", "Funko", "Loungefly", "MGA Entertainment", "Moose Toys", "Just Play", "NECA", "McFarlane Toys", "Ravensburger", "Crayola"])),
+        )
+        # Three finder calls plus up to 20 product histories stays below the
+        # 30-minute token refill budget. Windows and brand families rotate.
+        rotation = self._scan_number
+        self._scan_number += 1
+        strategies = (
+            windows[rotation % len(windows)],
+            ("Amazon currently OOS", self._selection("oos")),
+            brand_groups[rotation % len(brand_groups)],
         )
         for label, selection in strategies:
             payload = self._get("/query", selection=selection)
@@ -283,6 +294,21 @@ class AmazonLeadsEngine:
         response = requests.get(self.API + path, params=params, timeout=self.timeout)
         if not response.ok:
             detail = response.text.strip()[:500]
+            if response.status_code == 429:
+                try:
+                    info = response.json()
+                    left = int(info.get("tokensLeft", 0))
+                    rate = max(1, int(info.get("refillRate", 1)))
+                    refill_ms = int(info.get("refillIn", 0))
+                    wait_minutes = max(1, round(max(0, -left) / rate + refill_ms / 60000 + 0.5))
+                    raise RuntimeError(
+                        f"Keepa tokens are refilling. Retry in about {wait_minutes} minute(s); "
+                        "the scanner will also try automatically on its next cycle."
+                    )
+                except RuntimeError:
+                    raise
+                except Exception:
+                    pass
             raise RuntimeError(f"Keepa HTTP {response.status_code}: {detail or 'request rejected'}")
         data = response.json()
         if data.get("error"):
