@@ -57,6 +57,10 @@ class AmazonLeads(commands.Cog):
 
     async def _run_scan(self, force=False):
         try:
+            permission_issues = self._permission_issues()
+            if permission_issues:
+                self.last_error = "Discord permissions missing: " + "; ".join(permission_issues)
+                return 0
             leads = await asyncio.to_thread(self.engine.scan)
             posted = 0
             for lead in leads:
@@ -87,6 +91,26 @@ class AmazonLeads(commands.Cog):
             self.last_error = str(error)[:240]
             print(f"❌ Amazon lead scan error: {error!r}")
             return 0
+
+    def _permission_issues(self):
+        issues = []
+        labels = {
+            "hold": "AMAZON_HOLD_LEADS_CHANNEL_ID",
+            "pressure": "AMAZON_STOCK_PRESSURE_CHANNEL_ID",
+            "review": "AMAZON_LEAD_REVIEW_CHANNEL_ID",
+        }
+        required = ("view_channel", "send_messages", "embed_links", "attach_files")
+        for lane, env_name in labels.items():
+            channel = self._channel(lane)
+            if channel is None:
+                issues.append(f"{env_name} does not resolve to a visible channel")
+                continue
+            member = channel.guild.me
+            permissions = channel.permissions_for(member)
+            missing = [name.replace("_", " ").title() for name in required if not getattr(permissions, name, False)]
+            if missing:
+                issues.append(f"#{channel.name}: {', '.join(missing)}")
+        return issues
 
     def _channel(self, lane):
         raw = self.channel_ids.get(lane, "").strip()
