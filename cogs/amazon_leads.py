@@ -71,11 +71,18 @@ class AmazonLeads(commands.Cog):
                 if channel is None:
                     continue
                 embed = self._embed(lead)
-                chart = await asyncio.to_thread(self.engine.chart_png, lead)
+                can_attach = channel.permissions_for(channel.guild.me).attach_files
+                chart = await asyncio.to_thread(self.engine.chart_png, lead) if can_attach else None
                 file = None
                 if chart:
                     file = discord.File(io.BytesIO(chart), filename=f"keepa_{lead.asin}.png")
                     embed.set_image(url=f"attachment://keepa_{lead.asin}.png")
+                elif not can_attach:
+                    embed.add_field(
+                        name="Chart",
+                        value="Discord Attach Files is disabled here. Use the Keepa link above for the full chart.",
+                        inline=False,
+                    )
                 if file:
                     await channel.send(embed=embed, file=file, allowed_mentions=discord.AllowedMentions.none())
                 else:
@@ -99,7 +106,7 @@ class AmazonLeads(commands.Cog):
             "pressure": "AMAZON_STOCK_PRESSURE_CHANNEL_ID",
             "review": "AMAZON_LEAD_REVIEW_CHANNEL_ID",
         }
-        required = ("view_channel", "send_messages", "embed_links", "attach_files")
+        required = ("view_channel", "send_messages", "embed_links")
         for lane, env_name in labels.items():
             channel = self._channel(lane)
             if channel is None:
