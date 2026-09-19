@@ -21,6 +21,7 @@ class Lead:
     title: str
     brand: str
     lane: str
+    lead_type: str
     amazon_price: float | None
     exit_price: float | None
     profit: float | None
@@ -54,11 +55,11 @@ class AmazonLeadsEngine:
     API = "https://api.keepa.com"
     BRANDS = {
         "barbie", "disney", "fisher-price", "funko", "hasbro",
-        "hot wheels", "jazwares", "just play", "lego", "loungefly", "mattel",
+        "hot wheels", "jazwares", "just play", "loungefly", "mattel",
         "mcfarlane toys", "mga entertainment", "moose toys", "neca", "nerf",
         "play-doh", "pokemon", "ravensburger", "spin master", "star wars",
     }
-    BLOCKED = ("generic", "unbranded", "bundle", "bulk", "wholesale", "custom")
+    BLOCKED = ("generic", "unbranded", "bundle", "bulk", "wholesale", "custom", "lego")
 
     def __init__(self):
         self.key = os.getenv("KEEPA_API_KEY", "").strip()
@@ -72,6 +73,9 @@ class AmazonLeadsEngine:
         self.max_roi = float(os.getenv("AMAZON_LEADS_MAX_ROI", "100"))
         self.referral_rate = float(os.getenv("AMAZON_LEADS_REFERRAL_RATE", ".15"))
         self.fba_fee = float(os.getenv("AMAZON_LEADS_EST_FBA_FEE", "4.50"))
+        self.velocity_monthly = int(os.getenv("AMAZON_LEADS_VELOCITY_MONTHLY", "50"))
+        self.velocity_drops30 = int(os.getenv("AMAZON_LEADS_VELOCITY_DROPS30", "10"))
+        self.stock_cycle_oos90 = int(os.getenv("AMAZON_LEADS_STOCK_CYCLE_OOS90", "5"))
 
     def scan(self):
         if not self.key:
@@ -126,7 +130,15 @@ class AmazonLeadsEngine:
             lead = self._evaluate(product)
             if lead:
                 leads.append(lead)
-        self.last_scan_stats = {"discovered": len(discovered), "products": len(products), "qualified": len(leads), "batch_start": start, "next_cursor": self._candidate_cursor}
+        self.last_scan_stats = {
+            "discovered": len(discovered),
+            "products": len(products),
+            "qualified": len(leads),
+            "roi_leads": sum(lead.lead_type == "roi-qualified" for lead in leads),
+            "velocity_review": sum(lead.lead_type == "velocity-review" for lead in leads),
+            "batch_start": start,
+            "next_cursor": self._candidate_cursor,
+        }
         return self._diversified_sort(leads)
 
     def _selection(self, window, brands=None):
@@ -203,7 +215,9 @@ class AmazonLeadsEngine:
         current = stats.get("current") or []
         avg90 = stats.get("avg90") or []
         avg180 = stats.get("avg180") or []
-        amazon = self._price(self._at(current, AMAZON))
+        amazon_raw = self._at(current, AMAZON)
+        amazon = self._price(amazon_raw)
+        amazon_oos = isinstance(amazon_raw, (int, float)) and amazon_raw < 0
         oos_exit, history_buy = self._oos_prices(p.get("csv"))
         fallback_exits = [self._price(self._at(a, BUY_BOX_SHIPPING)) for a in (avg90, avg180)]
         fallback_exits = [x for x in fallback_exits if x]
@@ -220,14 +234,37 @@ class AmazonLeadsEngine:
         drops = self._positive(stats.get("salesRankDrops30"))
         oos90 = self._positive((stats.get("outOfStockPercentage90") or [None])[AMAZON])
         qualifies = profit is not None and profit >= self.min_profit and roi is not None and self.min_roi <= roi <= self.max_roi
-        if not qualifies:
+        rank_ok = rank is not None and 50000 <= rank <= 250000
+        high_velocity = (monthly or 0) >= self.velocity_monthly or (drops or 0) >= self.velocity_drops30
+        stock_pressure = amazon_oos or (
+            amazon is not None and ((oos90 or 0) >= self.stock_cycle_oos90 or oos_exit is not None)
+        )
+        velocity_review = rank_ok and high_velocity and stock_pressure and (roi is None or roi >= 0)
+        if not qualifies and not velocity_review:
             return None
-        if amazon:
+        if qualifies and amazon:
             lane, reason = "hold", "Amazon is in stock; modeled exit meets the profit and ROI thresholds."
-        else:
+            lead_type = "roi-qualified"
+        elif qualifies:
             lane, reason = "pressure", "Amazon is out of stock; historical Amazon buy and modeled exit meet the profit and ROI thresholds."
+            lead_type = "roi-qualified"
+        elif amazon_oos:
+            lane = "pressure"
+            lead_type = "velocity-review"
+            reason = "High sales velocity with Amazon currently out of stock. Review Keepa and locate a source; profit is not confirmed."
+        else:
+            lane = "review"
+            lead_type = "velocity-review"
+            reason = "High sales velocity while Amazon has been cycling in and out of stock. Review before Amazon disappears; profit is not confirmed."
         score = min(100, (25 if not amazon else 15) + min(monthly or 0, 200) // 5 + min(drops or 0, 30) + (20 if qualifies else 0))
-        return Lead(str(p.get("asin")), title[:250], brand or "Known licensed brand", lane, amazon, exit_price, profit, roi, rank, monthly, drops, sellers, oos90, score, reason, ", ".join(p.get("_lead_methods") or ["Keepa discovery"]), self._history(p.get("csv")))
+        return Lead(
+            asin=str(p.get("asin")), title=title[:250], brand=brand or "Known licensed brand",
+            lane=lane, lead_type=lead_type, amazon_price=amazon, exit_price=exit_price,
+            profit=profit, roi=roi, rank=rank, monthly_sold=monthly, drops30=drops,
+            sellers=sellers, amazon_oos90=oos90, score=score, reason=reason,
+            methods=", ".join(p.get("_lead_methods") or ["Keepa discovery"]),
+            history=self._history(p.get("csv")),
+        )
 
     def _oos_prices(self, csv):
         csv = csv or []
@@ -391,4 +428,3 @@ class AmazonLeadsEngine:
     @staticmethod
     def _positive(value):
         return int(value) if isinstance(value, (int, float)) and value >= 0 else None
-
