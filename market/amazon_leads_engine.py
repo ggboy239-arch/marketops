@@ -1,4 +1,5 @@
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from statistics import median
@@ -393,29 +394,38 @@ class AmazonLeadsEngine:
         if "selection" in params:
             import json
             params["selection"] = json.dumps(params["selection"], separators=(",", ":"))
-        response = requests.get(self.API + path, params=params, timeout=self.timeout)
-        if not response.ok:
+        for attempt in range(4):
+            response = requests.get(self.API + path, params=params, timeout=self.timeout)
+            if response.ok:
+                data = response.json()
+                if data.get("error"):
+                    raise RuntimeError(f"Keepa: {data['error']}")
+                return data
+
             detail = response.text.strip()[:500]
-            if response.status_code == 429:
-                try:
-                    info = response.json()
-                    left = int(info.get("tokensLeft", 0))
-                    rate = max(1, int(info.get("refillRate", 1)))
-                    refill_ms = int(info.get("refillIn", 0))
-                    wait_minutes = max(1, round(max(0, -left) / rate + refill_ms / 60000 + 0.5))
-                    raise RuntimeError(
-                        f"Keepa tokens are refilling. Retry in about {wait_minutes} minute(s); "
-                        "the scanner will also try automatically on its next cycle."
-                    )
-                except RuntimeError:
-                    raise
-                except Exception:
-                    pass
-            raise RuntimeError(f"Keepa HTTP {response.status_code}: {detail or 'request rejected'}")
-        data = response.json()
-        if data.get("error"):
-            raise RuntimeError(f"Keepa: {data['error']}")
-        return data
+            if response.status_code != 429:
+                raise RuntimeError(f"Keepa HTTP {response.status_code}: {detail or 'request rejected'}")
+
+            try:
+                info = response.json()
+                left = int(info.get("tokensLeft", 0))
+                rate = max(1, int(info.get("refillRate", 1)))
+                refill_ms = int(info.get("refillIn", 0))
+                wait_seconds = max(5, int(max(0, -left) / rate * 60 + refill_ms / 1000) + 5)
+                wait_seconds = min(600, wait_seconds)
+            except Exception:
+                wait_seconds = 65
+
+            if attempt == 3:
+                wait_minutes = max(1, (wait_seconds + 59) // 60)
+                raise RuntimeError(
+                    f"Keepa tokens are still refilling after automatic retries. "
+                    f"Try again in about {wait_minutes} minute(s)."
+                )
+            print(f"⏳ Amazon lead scan pausing {wait_seconds} seconds for Keepa tokens, then resuming.")
+            time.sleep(wait_seconds)
+
+        raise RuntimeError("Keepa request did not complete")
 
     @staticmethod
     def _at(values, index):
