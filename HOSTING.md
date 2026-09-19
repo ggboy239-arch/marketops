@@ -19,6 +19,13 @@ Required lead variables:
 - `AMAZON_LEADS_MIN_PROFIT=10`
 - `AMAZON_LEADS_MIN_ROI=20`
 - `AMAZON_LEADS_MAX_ROI=100`
+- `AMAZON_LEADS_VELOCITY_MONTHLY=50`
+- `AMAZON_LEADS_VELOCITY_DROPS30=10`
+- `AMAZON_LEADS_STOCK_CYCLE_OOS90=5`
+
+The lead scanner posts both ROI-qualified opportunities and high-velocity
+manual-review candidates when Amazon is OOS or repeatedly cycling stock.
+LEGO is excluded from both lead and storefront feeds.
 
 Copy the other existing MarketOps provider variables too, including `MARKETAUX_API_KEY`, `OPENAI_API_KEY`, and any provider keys used by the news and market cogs.
 

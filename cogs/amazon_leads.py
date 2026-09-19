@@ -54,7 +54,8 @@ class AmazonLeads(commands.Cog):
         funnel = (
             f"Discovered: {stats.get('discovered', 'N/A')} • "
             f"Analyzed: {stats.get('products', 'N/A')} • "
-            f"Qualified: {stats.get('qualified', 'N/A')} • "
+            f"Posted candidates: {stats.get('qualified', 'N/A')} "
+            f"(ROI: {stats.get('roi_leads', 'N/A')} • Velocity review: {stats.get('velocity_review', 'N/A')}) • "
             f"Next batch starts at: {stats.get('next_cursor', 'N/A')}"
         )
         await ctx.send(
@@ -72,7 +73,7 @@ class AmazonLeads(commands.Cog):
             leads = await asyncio.to_thread(self.engine.scan)
             posted = 0
             for lead in leads:
-                signature = f"{lead.lane}:{lead.amazon_price}:{lead.exit_price}:{lead.roi}:{lead.sellers}"
+                signature = f"{lead.lead_type}:{lead.lane}:{lead.amazon_price}:{lead.exit_price}:{lead.roi}:{lead.sellers}"
                 if not force and self.state.get("seen", {}).get(lead.asin) == signature:
                     continue
                 channel = self._channel(lead.lane)
@@ -144,6 +145,7 @@ class AmazonLeads(commands.Cog):
         embed.add_field(name="Amazon buy", value=money(lead.amazon_price), inline=True)
         embed.add_field(name="Historical exit", value=money(lead.exit_price), inline=True)
         embed.add_field(name="Est. profit / ROI", value=f"{money(lead.profit)} / {lead.roi:.1f}%" if lead.roi is not None else "N/A", inline=True)
+        embed.add_field(name="Lead type", value="ROI qualified" if lead.lead_type == "roi-qualified" else "High-velocity manual review", inline=True)
         embed.add_field(name="Max buy @ target ROI", value=money(max_buy), inline=True)
         embed.add_field(name="Velocity", value=f"{number(lead.monthly_sold)} monthly • {number(lead.drops30)} drops/30d", inline=True)
         embed.add_field(name="Rank / sellers", value=f"{number(lead.rank)} / {number(lead.sellers)}", inline=True)

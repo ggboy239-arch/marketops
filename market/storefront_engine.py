@@ -113,9 +113,14 @@ class StorefrontEngine:
         if not chosen:
             return []
         payload = self._get("/product", asin=",".join(chosen), stats=90, history=0, buybox=0)
-        return [self._product(item) for item in payload.get("products") or [] if item.get("asin")]
+        products = [self._product(item) for item in payload.get("products") or [] if item.get("asin")]
+        return [product for product in products if product is not None]
 
     def _product(self, item):
+        brand = str(item.get("brand") or "Brand not listed")[:100]
+        title = str(item.get("title") or "Untitled Amazon product")[:250]
+        if "lego" in f"{brand} {title}".lower():
+            return None
         stats = item.get("stats") or {}
         current = stats.get("current") or []
         amazon_raw = self._at(current, AMAZON)
@@ -124,8 +129,8 @@ class StorefrontEngine:
         images = str(item.get("imagesCSV") or "").split(",")
         image = f"https://m.media-amazon.com/images/I/{images[0]}" if images and images[0] else None
         return StorefrontProduct(
-            asin=str(item.get("asin")), title=str(item.get("title") or "Untitled Amazon product")[:250],
-            brand=str(item.get("brand") or "Brand not listed")[:100], image_url=image, price=price,
+            asin=str(item.get("asin")), title=title,
+            brand=brand, image_url=image, price=price,
             rank=self._positive(self._at(current, SALES)), sellers=self._positive(self._at(current, COUNT_NEW)),
             amazon_in_stock=amazon_in_stock,
         )

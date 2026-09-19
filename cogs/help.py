@@ -189,6 +189,17 @@ class MarketOpsHelp(commands.Cog):
         )
 
         embed.add_field(
+            name="📦 Amazon OOS / Velocity Leads",
+            value=(
+                "`!amazonleads` — scanner status and ROI/velocity counts\n"
+                "`!amazonleads now` — force a scan when Keepa tokens are available\n"
+                "Posts ROI-qualified leads plus high-velocity manual-review items when Amazon is OOS or cycling stock.\n"
+                "LEGO is excluded."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
             name="🔑 Admin / Owner",
             value=(
                 "Admin keys/tickets: `#admin-keys`\n"
