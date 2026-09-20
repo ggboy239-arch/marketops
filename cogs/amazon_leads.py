@@ -149,6 +149,8 @@ class AmazonLeads(commands.Cog):
         embed.add_field(name="Max buy @ target ROI", value=money(max_buy), inline=True)
         embed.add_field(name="Velocity", value=f"{number(lead.monthly_sold)} monthly • {number(lead.drops30)} drops/30d", inline=True)
         embed.add_field(name="Rank / sellers", value=f"{number(lead.rank)} / {number(lead.sellers)}", inline=True)
+        stock_recency = f"{lead.amazon_last_in_stock_days} day(s) ago" if lead.amazon_last_in_stock_days is not None else "N/A"
+        embed.add_field(name="Amazon stock cycle", value=f"Last stocked: {stock_recency} • {lead.amazon_stock_changes90} change(s)/90d", inline=False)
         embed.add_field(name="Lead methods", value=lead.methods[:1000], inline=False)
         embed.add_field(name="Why it surfaced", value=lead.reason, inline=False)
         embed.add_field(name="Review", value=f"[Amazon]({lead.amazon_url}) • [Keepa]({lead.keepa_url})", inline=False)
