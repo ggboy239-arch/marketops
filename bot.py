@@ -260,6 +260,7 @@ async def load():
     await bot.load_extension("cogs.calendar")
     await bot.load_extension("cogs.amazon_leads")
     await bot.load_extension("cogs.storefronts")
+    await bot.load_extension("cogs.toy_trends")
 
 
 async def main():
