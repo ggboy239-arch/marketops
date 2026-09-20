@@ -32,6 +32,8 @@ class Lead:
     drops30: int | None
     sellers: int | None
     amazon_oos90: int | None
+    amazon_last_in_stock_days: int | None
+    amazon_stock_changes90: int
     score: int
     reason: str
     methods: str
@@ -77,6 +79,9 @@ class AmazonLeadsEngine:
         self.velocity_monthly = int(os.getenv("AMAZON_LEADS_VELOCITY_MONTHLY", "50"))
         self.velocity_drops30 = int(os.getenv("AMAZON_LEADS_VELOCITY_DROPS30", "10"))
         self.stock_cycle_oos90 = int(os.getenv("AMAZON_LEADS_STOCK_CYCLE_OOS90", "5"))
+        self.max_amazon_buy = float(os.getenv("AMAZON_LEADS_MAX_AMAZON_BUY", "50"))
+        self.recent_stock_days = int(os.getenv("AMAZON_LEADS_RECENT_STOCK_DAYS", "30"))
+        self.min_stock_changes90 = int(os.getenv("AMAZON_LEADS_MIN_STOCK_CHANGES90", "1"))
 
     def scan(self):
         if not self.key:
@@ -153,6 +158,7 @@ class AmazonLeadsEngine:
             "current_COUNT_NEW_gte": 2,
             "current_COUNT_NEW_lte": 20,
             "monthlySold_gte": 20,
+            "current_AMAZON_lte": int(self.max_amazon_buy * 100),
         }
         if brands:
             selection["brand"] = brands
@@ -220,6 +226,7 @@ class AmazonLeadsEngine:
         amazon = self._price(amazon_raw)
         amazon_oos = isinstance(amazon_raw, (int, float)) and amazon_raw < 0
         oos_exit, history_buy = self._oos_prices(p.get("csv"))
+        in_stock_this_year, last_in_stock_days, stock_changes90 = self._amazon_stock_metrics(p.get("csv"))
         fallback_exits = [self._price(self._at(a, BUY_BOX_SHIPPING)) for a in (avg90, avg180)]
         fallback_exits = [x for x in fallback_exits if x]
         exit_price = oos_exit or (round(median(fallback_exits), 2) if fallback_exits else self._price(self._at(current, BUY_BOX_SHIPPING)))
@@ -237,10 +244,14 @@ class AmazonLeadsEngine:
         qualifies = profit is not None and profit >= self.min_profit and roi is not None and self.min_roi <= roi <= self.max_roi
         rank_ok = rank is not None and 50000 <= rank <= 250000
         high_velocity = (monthly or 0) >= self.velocity_monthly or (drops or 0) >= self.velocity_drops30
-        stock_pressure = amazon_oos or (
-            amazon is not None and ((oos90 or 0) >= self.stock_cycle_oos90 or oos_exit is not None)
-        )
+        affordable = buy is not None and buy <= self.max_amazon_buy
+        recently_stocked = last_in_stock_days is not None and last_in_stock_days <= self.recent_stock_days
+        mixed_stock90 = oos90 is not None and self.stock_cycle_oos90 <= oos90 < 100
+        actively_cycling = stock_changes90 >= self.min_stock_changes90 and mixed_stock90
+        sourceable_cycle = affordable and in_stock_this_year and recently_stocked and actively_cycling
+        stock_pressure = sourceable_cycle and (amazon_oos or amazon is not None)
         velocity_review = rank_ok and high_velocity and stock_pressure and (roi is None or roi >= 0)
+        qualifies = qualifies and sourceable_cycle
         if not qualifies and not velocity_review:
             return None
         if qualifies and amazon:
@@ -262,10 +273,59 @@ class AmazonLeadsEngine:
             asin=str(p.get("asin")), title=title[:250], brand=brand or "Known licensed brand",
             lane=lane, lead_type=lead_type, amazon_price=amazon, exit_price=exit_price,
             profit=profit, roi=roi, rank=rank, monthly_sold=monthly, drops30=drops,
-            sellers=sellers, amazon_oos90=oos90, score=score, reason=reason,
+            sellers=sellers, amazon_oos90=oos90,
+            amazon_last_in_stock_days=last_in_stock_days,
+            amazon_stock_changes90=stock_changes90,
+            score=score, reason=reason,
             methods=", ".join(p.get("_lead_methods") or ["Keepa discovery"]),
             history=self._history(p.get("csv")),
         )
+
+    def _amazon_stock_metrics(self, csv):
+        """Return current-year stock proof, recency, and 90-day stock changes."""
+        amazon_raw = self._at(csv or [], AMAZON)
+        if not isinstance(amazon_raw, list):
+            return False, None, 0
+
+        epoch = datetime(2011, 1, 1, tzinfo=timezone.utc)
+        events = []
+        for index in range(0, len(amazon_raw) - 1, 2):
+            minute, value = amazon_raw[index], amazon_raw[index + 1]
+            if isinstance(minute, (int, float)) and isinstance(value, (int, float)):
+                events.append((epoch + timedelta(minutes=minute), value))
+        if not events:
+            return False, None, 0
+
+        now = datetime.now(timezone.utc)
+        year_start = datetime(now.year, 1, 1, tzinfo=timezone.utc)
+        cutoff90 = now - timedelta(days=90)
+        replay_start = min(year_start, cutoff90).replace(hour=23, minute=59, second=59, microsecond=0)
+        event_index = 0
+        state = -1
+        while event_index < len(events) and events[event_index][0] <= replay_start:
+            state = events[event_index][1]
+            event_index += 1
+
+        in_stock_this_year = False
+        last_in_stock = None
+        stock_changes90 = 0
+        previous_in_stock = state > 0
+        day = replay_start
+        while day <= now:
+            while event_index < len(events) and events[event_index][0] <= day:
+                state = events[event_index][1]
+                event_index += 1
+            in_stock = state > 0
+            if day >= cutoff90 and in_stock != previous_in_stock:
+                stock_changes90 += 1
+            previous_in_stock = in_stock
+            if in_stock and day >= year_start:
+                in_stock_this_year = True
+                last_in_stock = day
+            day += timedelta(days=1)
+
+        days_since = (now.date() - last_in_stock.date()).days if last_in_stock else None
+        return in_stock_this_year, days_since, stock_changes90
 
     def _oos_prices(self, csv):
         csv = csv or []

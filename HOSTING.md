@@ -22,10 +22,16 @@ Required lead variables:
 - `AMAZON_LEADS_VELOCITY_MONTHLY=50`
 - `AMAZON_LEADS_VELOCITY_DROPS30=10`
 - `AMAZON_LEADS_STOCK_CYCLE_OOS90=5`
+- `AMAZON_LEADS_MAX_AMAZON_BUY=50`
+- `AMAZON_LEADS_RECENT_STOCK_DAYS=30`
+- `AMAZON_LEADS_MIN_STOCK_CHANGES90=1`
 
 The lead scanner posts both ROI-qualified opportunities and high-velocity
 manual-review candidates when Amazon is OOS or repeatedly cycling stock.
 LEGO is excluded from both lead and storefront feeds.
+Amazon lead candidates must also have current-year Amazon stock history, recent
+Amazon availability, a maximum Amazon source price of $50, and a 90-day stock
+change. This rejects long-term OOS/discontinued products.
 
 Copy the other existing MarketOps provider variables too, including `MARKETAUX_API_KEY`, `OPENAI_API_KEY`, and any provider keys used by the news and market cogs.
 
