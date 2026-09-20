@@ -36,6 +36,8 @@ class Lead:
     seller_trend: str
     improving_rank_windows: int
     price_multiple: float | None
+    listing_age_days: int | None
+    first_amazon_sellout_days: float | None
     amazon_oos90: int | None
     amazon_last_in_stock_days: int | None
     amazon_stock_changes90: int
@@ -87,6 +89,8 @@ class AmazonLeadsEngine:
         self.max_amazon_buy = float(os.getenv("AMAZON_LEADS_MAX_AMAZON_BUY", "50"))
         self.recent_stock_days = int(os.getenv("AMAZON_LEADS_RECENT_STOCK_DAYS", "30"))
         self.min_stock_changes90 = int(os.getenv("AMAZON_LEADS_MIN_STOCK_CHANGES90", "1"))
+        self.new_listing_days = int(os.getenv("AMAZON_LEADS_NEW_LISTING_DAYS", "45"))
+        self.quick_sellout_days = int(os.getenv("AMAZON_LEADS_QUICK_SELLOUT_DAYS", "7"))
 
     def scan(self):
         if not self.key:
@@ -107,6 +111,7 @@ class AmazonLeadsEngine:
         strategies = (
             ("Amazon in stock + recent stock cycling", self._selection("instock")),
             ("Amazon currently OOS", self._selection("oos")),
+            ("New listing + quick Amazon sellout", self._selection("quick")),
             rotating[rotation % len(rotating)],
         )
         for label, selection in strategies:
@@ -148,6 +153,7 @@ class AmazonLeadsEngine:
             "roi_leads": sum(lead.lead_type == "roi-qualified" for lead in leads),
             "velocity_review": sum(lead.lead_type == "velocity-review" for lead in leads),
             "new_release_pressure": sum(lead.lead_type == "new-release-pressure" for lead in leads),
+            "quick_sellout": sum(lead.lead_type == "quick-sellout" for lead in leads),
             "batch_start": start,
             "next_cursor": self._candidate_cursor,
         }
@@ -209,6 +215,18 @@ class AmazonLeadsEngine:
                 "salesRankDrops30_gte": 5,
                 "sort": [["monthlySold", "desc"]],
             })
+        elif window == "quick":
+            # Keep this finder query broad and verify listing age plus the exact
+            # first-stock-to-first-OOS interval from product history below.
+            selection.update({
+                "current_AMAZON_lte": -1,
+                "current_SALES_gte": 1,
+                "current_SALES_lte": 350000,
+                "monthlySold_gte": 5,
+                "outOfStockCountAmazon30_gte": 1,
+                "salesRankDrops30_gte": 1,
+                "sort": [["salesRankDrops30", "desc"]],
+            })
         else:
             selection.update({
                 "current_SALES_gte": 50000,
@@ -235,6 +253,8 @@ class AmazonLeadsEngine:
         amazon_oos = isinstance(amazon_raw, (int, float)) and amazon_raw < 0
         oos_exit, history_buy = self._oos_prices(p.get("csv"))
         in_stock_this_year, last_in_stock_days, stock_changes90 = self._amazon_stock_metrics(p.get("csv"))
+        listing_age_days = self._listing_age_days(p.get("listedSince"))
+        first_amazon_sellout_days = self._first_amazon_sellout_days(p.get("csv"))
         fallback_exits = [self._price(self._at(a, BUY_BOX_SHIPPING)) for a in (avg90, avg180)]
         fallback_exits = [x for x in fallback_exits if x]
         exit_price = oos_exit or (round(median(fallback_exits), 2) if fallback_exits else self._price(self._at(current, BUY_BOX_SHIPPING)))
@@ -283,7 +303,15 @@ class AmazonLeadsEngine:
             rank_ok and high_velocity and sourceable_cycle and multi_window_demand
             and seller_trend == "down/stable" and price_expanding
         )
-        velocity_review = velocity_review or new_release_pressure
+        quick_sellout = (
+            amazon_oos
+            and listing_age_days is not None and listing_age_days <= self.new_listing_days
+            and first_amazon_sellout_days is not None
+            and first_amazon_sellout_days <= self.quick_sellout_days
+            and high_velocity
+            and (sellers is None or sellers <= 20)
+        )
+        velocity_review = velocity_review or new_release_pressure or quick_sellout
         qualifies = qualifies and sourceable_cycle
         if not qualifies and not velocity_review:
             return None
@@ -293,6 +321,13 @@ class AmazonLeadsEngine:
         elif qualifies:
             lane, reason = "pressure", "Amazon is out of stock; historical Amazon buy and modeled exit meet the profit and ROI thresholds."
             lead_type = "roi-qualified"
+        elif quick_sellout:
+            lane = "pressure"
+            lead_type = "quick-sellout"
+            reason = (
+                f"New Amazon listing ({listing_age_days} day(s) old) went from its first Amazon stock "
+                f"to out of stock in {first_amazon_sellout_days:.1f} day(s). Locate a retail source and verify demand before buying."
+            )
         elif new_release_pressure:
             lane = "pressure"
             lead_type = "new-release-pressure"
@@ -310,20 +345,51 @@ class AmazonLeadsEngine:
             reason = "High sales velocity while Amazon has been cycling in and out of stock. Review before Amazon disappears; profit is not confirmed."
         score = min(100, (25 if not amazon else 15) + min(monthly or 0, 200) // 5 + min(drops or 0, 30)
                     + improving_rank_windows * 5 + (10 if seller_trend == "down/stable" else 0)
-                    + (10 if price_multiple and price_multiple >= 2 else 0) + (20 if qualifies else 0))
+                    + (10 if price_multiple and price_multiple >= 2 else 0)
+                    + (20 if quick_sellout else 0) + (20 if qualifies else 0))
         return Lead(
             asin=str(p.get("asin")), title=title[:250], brand=brand or "Known licensed brand",
             lane=lane, lead_type=lead_type, amazon_price=amazon, exit_price=exit_price,
             profit=profit, roi=roi, rank=rank, monthly_sold=monthly, drops30=drops,
             drops90=drops90, drops180=drops180, sellers=sellers,
             seller_trend=seller_trend, improving_rank_windows=improving_rank_windows,
-            price_multiple=price_multiple, amazon_oos90=oos90,
+            price_multiple=price_multiple, listing_age_days=listing_age_days,
+            first_amazon_sellout_days=first_amazon_sellout_days, amazon_oos90=oos90,
             amazon_last_in_stock_days=last_in_stock_days,
             amazon_stock_changes90=stock_changes90,
             score=score, reason=reason,
             methods=", ".join(p.get("_lead_methods") or ["Keepa discovery"]),
             history=self._history(p.get("csv")),
         )
+
+    @staticmethod
+    def _listing_age_days(listed_since):
+        if not isinstance(listed_since, (int, float)) or listed_since <= 0:
+            return None
+        listed = datetime(2011, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=listed_since)
+        return max(0, (datetime.now(timezone.utc).date() - listed.date()).days)
+
+    @staticmethod
+    def _first_amazon_sellout_days(csv):
+        """Days from the first recent Amazon in-stock event to its first OOS event."""
+        raw = AmazonLeadsEngine._at(csv or [], AMAZON)
+        if not isinstance(raw, list):
+            return None
+        epoch = datetime(2011, 1, 1, tzinfo=timezone.utc)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=60)
+        first_stock = None
+        for index in range(0, len(raw) - 1, 2):
+            minute, value = raw[index], raw[index + 1]
+            if not isinstance(minute, (int, float)) or not isinstance(value, (int, float)):
+                continue
+            moment = epoch + timedelta(minutes=minute)
+            if moment < cutoff:
+                continue
+            if value > 0 and first_stock is None:
+                first_stock = moment
+            elif value < 0 and first_stock is not None and moment >= first_stock:
+                return round((moment - first_stock).total_seconds() / 86400, 1)
+        return None
 
     def _amazon_stock_metrics(self, csv):
         """Return current-year stock proof, recency, and 90-day stock changes."""
