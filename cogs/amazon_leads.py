@@ -56,7 +56,8 @@ class AmazonLeads(commands.Cog):
             f"Analyzed: {stats.get('products', 'N/A')} • "
             f"Posted candidates: {stats.get('qualified', 'N/A')} "
             f"(ROI: {stats.get('roi_leads', 'N/A')} • Velocity review: {stats.get('velocity_review', 'N/A')} • "
-            f"New-release pressure: {stats.get('new_release_pressure', 'N/A')}) • "
+            f"New-release pressure: {stats.get('new_release_pressure', 'N/A')} • "
+            f"Quick sellouts: {stats.get('quick_sellout', 'N/A')}) • "
             f"Next batch starts at: {stats.get('next_cursor', 'N/A')}"
         )
         await ctx.send(
@@ -149,6 +150,7 @@ class AmazonLeads(commands.Cog):
         type_label = {
             "roi-qualified": "ROI qualified",
             "new-release-pressure": "New-release stock pressure",
+            "quick-sellout": "Quick sellout (new ASIN)",
             "velocity-review": "High-velocity manual review",
         }.get(lead.lead_type, "Manual review")
         embed.add_field(name="Lead type", value=type_label, inline=True)
@@ -162,6 +164,12 @@ class AmazonLeads(commands.Cog):
         embed.add_field(name="Rank / sellers", value=f"{number(lead.rank)} / {number(lead.sellers)}", inline=True)
         multiple = f"{lead.price_multiple:.2f}x" if lead.price_multiple is not None else "N/A"
         embed.add_field(name="Price / seller pressure", value=f"Price expansion: {multiple} • Sellers: {lead.seller_trend}", inline=True)
+        if lead.lead_type == "quick-sellout":
+            embed.add_field(
+                name="Quick sellout",
+                value=f"Listing age: {number(lead.listing_age_days)} day(s) • First Amazon sellout: {lead.first_amazon_sellout_days:.1f} day(s)",
+                inline=False,
+            )
         stock_recency = f"{lead.amazon_last_in_stock_days} day(s) ago" if lead.amazon_last_in_stock_days is not None else "N/A"
         embed.add_field(name="Amazon stock cycle", value=f"Last stocked: {stock_recency} • {lead.amazon_stock_changes90} change(s)/90d", inline=False)
         embed.add_field(name="Lead methods", value=lead.methods[:1000], inline=False)
