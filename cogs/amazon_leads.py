@@ -55,7 +55,8 @@ class AmazonLeads(commands.Cog):
             f"Discovered: {stats.get('discovered', 'N/A')} • "
             f"Analyzed: {stats.get('products', 'N/A')} • "
             f"Posted candidates: {stats.get('qualified', 'N/A')} "
-            f"(ROI: {stats.get('roi_leads', 'N/A')} • Velocity review: {stats.get('velocity_review', 'N/A')}) • "
+            f"(ROI: {stats.get('roi_leads', 'N/A')} • Velocity review: {stats.get('velocity_review', 'N/A')} • "
+            f"New-release pressure: {stats.get('new_release_pressure', 'N/A')}) • "
             f"Next batch starts at: {stats.get('next_cursor', 'N/A')}"
         )
         await ctx.send(
@@ -145,10 +146,22 @@ class AmazonLeads(commands.Cog):
         embed.add_field(name="Amazon buy", value=money(lead.amazon_price), inline=True)
         embed.add_field(name="Historical exit", value=money(lead.exit_price), inline=True)
         embed.add_field(name="Est. profit / ROI", value=f"{money(lead.profit)} / {lead.roi:.1f}%" if lead.roi is not None else "N/A", inline=True)
-        embed.add_field(name="Lead type", value="ROI qualified" if lead.lead_type == "roi-qualified" else "High-velocity manual review", inline=True)
+        type_label = {
+            "roi-qualified": "ROI qualified",
+            "new-release-pressure": "New-release stock pressure",
+            "velocity-review": "High-velocity manual review",
+        }.get(lead.lead_type, "Manual review")
+        embed.add_field(name="Lead type", value=type_label, inline=True)
         embed.add_field(name="Max buy @ target ROI", value=money(max_buy), inline=True)
         embed.add_field(name="Velocity", value=f"{number(lead.monthly_sold)} monthly • {number(lead.drops30)} drops/30d", inline=True)
+        embed.add_field(
+            name="7/30/90/180 momentum",
+            value=f"Rank improving in {lead.improving_rank_windows}/3 comparisons • drops: {number(lead.drops30)} / {number(lead.drops90)} / {number(lead.drops180)}",
+            inline=False,
+        )
         embed.add_field(name="Rank / sellers", value=f"{number(lead.rank)} / {number(lead.sellers)}", inline=True)
+        multiple = f"{lead.price_multiple:.2f}x" if lead.price_multiple is not None else "N/A"
+        embed.add_field(name="Price / seller pressure", value=f"Price expansion: {multiple} • Sellers: {lead.seller_trend}", inline=True)
         stock_recency = f"{lead.amazon_last_in_stock_days} day(s) ago" if lead.amazon_last_in_stock_days is not None else "N/A"
         embed.add_field(name="Amazon stock cycle", value=f"Last stocked: {stock_recency} • {lead.amazon_stock_changes90} change(s)/90d", inline=False)
         embed.add_field(name="Lead methods", value=lead.methods[:1000], inline=False)
