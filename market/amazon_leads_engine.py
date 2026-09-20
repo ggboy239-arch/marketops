@@ -30,7 +30,12 @@ class Lead:
     rank: int | None
     monthly_sold: int | None
     drops30: int | None
+    drops90: int | None
+    drops180: int | None
     sellers: int | None
+    seller_trend: str
+    improving_rank_windows: int
+    price_multiple: float | None
     amazon_oos90: int | None
     amazon_last_in_stock_days: int | None
     amazon_stock_changes90: int
@@ -142,6 +147,7 @@ class AmazonLeadsEngine:
             "qualified": len(leads),
             "roi_leads": sum(lead.lead_type == "roi-qualified" for lead in leads),
             "velocity_review": sum(lead.lead_type == "velocity-review" for lead in leads),
+            "new_release_pressure": sum(lead.lead_type == "new-release-pressure" for lead in leads),
             "batch_start": start,
             "next_cursor": self._candidate_cursor,
         }
@@ -222,6 +228,8 @@ class AmazonLeadsEngine:
         current = stats.get("current") or []
         avg90 = stats.get("avg90") or []
         avg180 = stats.get("avg180") or []
+        avg7 = stats.get("avg7") or []
+        avg30 = stats.get("avg30") or []
         amazon_raw = self._at(current, AMAZON)
         amazon = self._price(amazon_raw)
         amazon_oos = isinstance(amazon_raw, (int, float)) and amazon_raw < 0
@@ -238,9 +246,27 @@ class AmazonLeadsEngine:
             roi = round(profit / buy * 100, 1)
         rank = self._positive(self._at(current, SALES))
         sellers = self._positive(self._at(current, COUNT_NEW))
+        sellers30 = self._positive(self._at(avg30, COUNT_NEW))
+        sellers90 = self._positive(self._at(avg90, COUNT_NEW))
         monthly = self._positive(p.get("monthlySold"))
         drops = self._positive(stats.get("salesRankDrops30"))
+        drops90 = self._positive(stats.get("salesRankDrops90"))
+        drops180 = self._positive(stats.get("salesRankDrops180"))
         oos90 = self._positive((stats.get("outOfStockPercentage90") or [None])[AMAZON])
+        rank_averages = [self._positive(self._at(window, SALES)) for window in (avg7, avg30, avg90)]
+        improving_rank_windows = sum(
+            1 for average in rank_averages if rank is not None and average is not None and rank < average
+        )
+        seller_comparisons = [value for value in (sellers30, sellers90) if value is not None]
+        if sellers is None or not seller_comparisons:
+            seller_trend = "unknown"
+        elif sellers <= min(seller_comparisons):
+            seller_trend = "down/stable"
+        else:
+            seller_trend = "rising"
+        price_baseline = historic_buy or self._price(self._at(avg90, BUY_BOX_SHIPPING))
+        current_box = self._price(self._at(current, BUY_BOX_SHIPPING))
+        price_multiple = round(current_box / price_baseline, 2) if current_box and price_baseline else None
         qualifies = profit is not None and profit >= self.min_profit and roi is not None and self.min_roi <= roi <= self.max_roi
         rank_ok = rank is not None and 50000 <= rank <= 250000
         high_velocity = (monthly or 0) >= self.velocity_monthly or (drops or 0) >= self.velocity_drops30
@@ -251,6 +277,13 @@ class AmazonLeadsEngine:
         sourceable_cycle = affordable and in_stock_this_year and recently_stocked and actively_cycling
         stock_pressure = sourceable_cycle and (amazon_oos or amazon is not None)
         velocity_review = rank_ok and high_velocity and stock_pressure and (roi is None or roi >= 0)
+        multi_window_demand = improving_rank_windows >= 2 and (drops90 or 0) >= 10
+        price_expanding = price_multiple is not None and price_multiple >= 1.5
+        new_release_pressure = (
+            rank_ok and high_velocity and sourceable_cycle and multi_window_demand
+            and seller_trend == "down/stable" and price_expanding
+        )
+        velocity_review = velocity_review or new_release_pressure
         qualifies = qualifies and sourceable_cycle
         if not qualifies and not velocity_review:
             return None
@@ -260,6 +293,13 @@ class AmazonLeadsEngine:
         elif qualifies:
             lane, reason = "pressure", "Amazon is out of stock; historical Amazon buy and modeled exit meet the profit and ROI thresholds."
             lead_type = "roi-qualified"
+        elif new_release_pressure:
+            lane = "pressure"
+            lead_type = "new-release-pressure"
+            reason = (
+                "Multi-window rank momentum, Amazon stock cycling, stable/falling sellers, "
+                f"and a {price_multiple:.2f}x price expansion. Find and verify a retail source before buying."
+            )
         elif amazon_oos:
             lane = "pressure"
             lead_type = "velocity-review"
@@ -268,12 +308,16 @@ class AmazonLeadsEngine:
             lane = "review"
             lead_type = "velocity-review"
             reason = "High sales velocity while Amazon has been cycling in and out of stock. Review before Amazon disappears; profit is not confirmed."
-        score = min(100, (25 if not amazon else 15) + min(monthly or 0, 200) // 5 + min(drops or 0, 30) + (20 if qualifies else 0))
+        score = min(100, (25 if not amazon else 15) + min(monthly or 0, 200) // 5 + min(drops or 0, 30)
+                    + improving_rank_windows * 5 + (10 if seller_trend == "down/stable" else 0)
+                    + (10 if price_multiple and price_multiple >= 2 else 0) + (20 if qualifies else 0))
         return Lead(
             asin=str(p.get("asin")), title=title[:250], brand=brand or "Known licensed brand",
             lane=lane, lead_type=lead_type, amazon_price=amazon, exit_price=exit_price,
             profit=profit, roi=roi, rank=rank, monthly_sold=monthly, drops30=drops,
-            sellers=sellers, amazon_oos90=oos90,
+            drops90=drops90, drops180=drops180, sellers=sellers,
+            seller_trend=seller_trend, improving_rank_windows=improving_rank_windows,
+            price_multiple=price_multiple, amazon_oos90=oos90,
             amazon_last_in_stock_days=last_in_stock_days,
             amazon_stock_changes90=stock_changes90,
             score=score, reason=reason,
